@@ -1134,9 +1134,9 @@ export class Floorplan3dPanel extends LitElement {
                   </div>`
               : nothing}
           </div>
-          ${!hasFeature("camera_cockpit")
+          ${!hasFeature("camera_cockpit") && countMosaicCameras(this.hass, b) > 0
             ? html`<button class="fp3d-chip" aria-pressed=${this._mosaicOpen} @click=${() => (this._mosaicOpen = !this._mosaicOpen)}>
-                📹 ${this.t("cameras_short")}${countMosaicCameras(this.hass, b) ? ` (${countMosaicCameras(this.hass, b)})` : ""}
+                📹 ${this.t("cameras_short")} (${countMosaicCameras(this.hass, b)})
               </button>`
             : nothing}
           ${hasFeature("time_travel")

@@ -14,8 +14,8 @@ function fakeHass(): HomeAssistant {
     entities: {
       "camera.front_door": { entity_id: "camera.front_door", name: "Porta da Frente", area_id: null },
       "camera.living_room": { entity_id: "camera.living_room", name: "Câmera Sala", area_id: "living" },
-      "camera.garden": { entity_id: "camera.garden", name: null, area_id: "garden" },
-      "camera.hidden_cam": { entity_id: "camera.hidden_cam", name: "Oculta", hidden: true },
+      "camera.garden_unplaced": { entity_id: "camera.garden_unplaced", name: "Câmera Solta", area_id: "garden" },
+      "camera.vacuum_map": { entity_id: "camera.vacuum_map", name: "Mapa Aspirador", area_id: "living" },
     },
     states: {
       "camera.front_door": {
@@ -28,20 +28,15 @@ function fakeHass(): HomeAssistant {
         state: "idle",
         attributes: { friendly_name: "Câmera Sala", entity_picture: "/api/camera_proxy/camera.living_room?token=def" },
       },
-      "camera.garden": {
-        entity_id: "camera.garden",
-        state: "unavailable",
-        attributes: { friendly_name: "Câmera Jardim" },
-      },
-      "camera.hidden_cam": {
-        entity_id: "camera.hidden_cam",
+      "camera.garden_unplaced": {
+        entity_id: "camera.garden_unplaced",
         state: "idle",
-        attributes: { friendly_name: "Oculta" },
+        attributes: { friendly_name: "Câmera Solta" },
       },
-      "light.kitchen": {
-        entity_id: "light.kitchen",
-        state: "on",
-        attributes: { friendly_name: "Luz Cozinha" },
+      "camera.vacuum_map": {
+        entity_id: "camera.vacuum_map",
+        state: "idle",
+        attributes: { friendly_name: "Mapa Aspirador" },
       },
     },
     connection: { subscribeMessage: async () => async () => {} },
@@ -50,7 +45,7 @@ function fakeHass(): HomeAssistant {
   };
 }
 
-test("collectMosaicCameras lists placed cameras first with floor/room context and appends remaining visible HA cameras", () => {
+test("collectMosaicCameras includes only cameras placed or linked in the house and ignores unrelated HA cameras", () => {
   const b = emptyBuilding();
   const eg = newFloor("eg", "Térreo", 0);
   eg.rooms = [
@@ -70,6 +65,7 @@ test("collectMosaicCameras lists placed cameras first with floor/room context an
       id: "r_living",
       name: "Sala",
       area_id: "living",
+      panel: ["camera.living_room"],
       points: [
         [4, 0],
         [9, 0],
@@ -86,34 +82,28 @@ test("collectMosaicCameras lists placed cameras first with floor/room context an
   const hass = fakeHass();
   const cams = collectMosaicCameras(hass, b);
 
-  assert.equal(countMosaicCameras(hass, b), 3);
+  // Only the 2 house cameras are returned; camera.garden_unplaced and camera.vacuum_map are ignored
+  assert.equal(countMosaicCameras(hass, b), 2);
   assert.deepEqual(
     cams.map((c) => c.entityId),
-    ["camera.front_door", "camera.garden", "camera.living_room"],
+    ["camera.front_door", "camera.living_room"],
   );
 
-  // Placed camera gets custom name, room & floor location, and proxy stream URL
   assert.equal(cams[0].label, "Portão Principal");
   assert.equal(cams[0].location, "Térreo · Entrada");
   assert.equal(cams[0].floorId, "eg");
   assert.equal(cams[0].roomId, "r_entry");
-  assert.equal(cams[0].online, true);
   assert.equal(cams[0].streamUrl, "/api/camera_proxy_stream/camera.front_door?token=abc");
 
-  // Unplaced camera in "garden" area gets its HA area name and offline status
-  assert.equal(cams[1].location, "Jardim");
-  assert.equal(cams[1].online, false);
-
-  // Unplaced camera whose HA area is linked to room "r_living" resolves to that room & floor
-  assert.equal(cams[2].floorId, "eg");
-  assert.equal(cams[2].roomId, "r_living");
-  assert.equal(cams[2].location, "Térreo · Sala");
+  assert.equal(cams[1].floorId, "eg");
+  assert.equal(cams[1].roomId, "r_living");
+  assert.equal(cams[1].location, "Térreo · Sala");
 });
 
 test("mosaicColumns adapts column count to camera count and viewport dimensions", () => {
   assert.equal(mosaicColumns(1, 1400, 800), 1);
-  assert.equal(mosaicColumns(4, 390, 700), 1); // narrow phone
-  assert.equal(mosaicColumns(4, 1280, 760), 2); // 2×2 fills 16:9 viewport cleanly
-  assert.equal(mosaicColumns(6, 1280, 760), 3); // 3×2 grid
-  assert.equal(mosaicColumns(8, 1440, 800), 4); // 4×2 grid on wide screen
+  assert.equal(mosaicColumns(4, 390, 700), 1);
+  assert.equal(mosaicColumns(4, 1280, 760), 2);
+  assert.equal(mosaicColumns(6, 1280, 760), 3);
+  assert.equal(mosaicColumns(8, 1440, 800), 4);
 });

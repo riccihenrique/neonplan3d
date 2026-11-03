@@ -1,7 +1,7 @@
 // Camera discovery and responsive grid sizing for the custom <np-camera-mosaic> overview.
-// Pure functions using Home Assistant's standard state/entity/area registries (no Lit or DOM dependencies).
+// Pure functions using only cameras placed or linked inside the 3D house plan (no Lit or DOM dependencies).
 
-import { entityAreaId, entityName, hiddenInHa } from "./devices.ts";
+import { entityAreaId, entityName } from "./devices.ts";
 import { pointInPolygon, zonesOf, type Building, type Floor } from "./model.ts";
 import type { HomeAssistant } from "./types.ts";
 
@@ -36,88 +36,89 @@ function findRoomAt(floor: Floor, x: number, z: number): { id: string; name: str
 }
 
 /**
- * Collects all cameras for the custom mosaic: first any `camera.*` entities explicitly placed on the 3D plan
- * (even if hidden in HA's registry), followed by all remaining visible `camera.*` entities in Home Assistant.
+ * Collects ONLY the `camera.*` entities that belong to the house plan:
+ * 1. Cameras placed on a floor (`floor.placements`),
+ * 2. Cameras linked to furniture on a floor (`f.entity` or `f.look_of`),
+ * 3. Cameras explicitly added to a room/outdoor area's `panel` list in the house.
+ * Unrelated `camera.*` entities enabled elsewhere in Home Assistant are ignored.
  */
 export function collectMosaicCameras(hass: HomeAssistant | undefined, building: Building | null | undefined): MosaicCamera[] {
-  if (!hass?.states) return [];
+  if (!hass?.states || !building) return [];
   const seen = new Set<string>();
-  const placed: MosaicCamera[] = [];
-  const floors = building?.floors ?? [];
+  const out: MosaicCamera[] = [];
+  const floors = building.floors ?? [];
 
-  for (const floor of floors) {
-    for (const p of floor.placements ?? []) {
-      const id = p.entity_id;
-      if (!id.startsWith("camera.") || seen.has(id)) continue;
-      seen.add(id);
-      const st = hass.states[id];
-      const room = findRoomAt(floor, p.x, p.z);
-      const label = (p.name && p.name.trim()) || entityName(hass, id);
-      const pic = typeof st?.attributes.entity_picture === "string" ? st.attributes.entity_picture : null;
-      const state = st?.state ?? "unavailable";
-      placed.push({
-        entityId: id,
-        label,
-        location: room ? (floors.length > 1 ? `${floor.name} · ${room.name}` : room.name) : floor.name || null,
-        floorId: floor.id,
-        floorName: floor.name || floor.id,
-        roomId: room?.id ?? null,
-        online: !!st && state !== "unavailable" && state !== "unknown",
-        state,
-        pictureUrl: pic,
-        streamUrl: toStreamUrl(pic),
-      });
-    }
-  }
-
-  const extra: MosaicCamera[] = [];
-  for (const id of Object.keys(hass.states)) {
-    if (!id.startsWith("camera.") || seen.has(id) || hiddenInHa(hass, id)) continue;
-    seen.add(id);
+  const pushCamera = (
+    id: string,
+    floor: Floor,
+    room: { id: string; name: string } | null,
+    customName?: string | null,
+  ) => {
+    if (!id.startsWith("camera.") || seen.has(id)) return;
     const st = hass.states[id];
-    const areaId = entityAreaId(hass, id);
-    const area = areaId ? hass.areas?.[areaId] : undefined;
-    let matchedFloor: Floor | null = null;
-    let matchedRoom: { id: string; name: string } | null = null;
-    if (areaId) {
-      for (const f of floors) {
-        const z = zonesOf(f).find((r) => r.area_id === areaId);
-        if (z) {
-          matchedFloor = f;
-          matchedRoom = { id: z.id, name: z.name || area?.name || z.id };
-          break;
-        }
-      }
-      if (!matchedFloor && area?.floor_id) {
-        matchedFloor = floors.find((f) => f.ha_floor === area.floor_id) ?? null;
+    if (!st) return;
+    seen.add(id);
+
+    let resolvedRoom = room;
+    let fallbackAreaName: string | null = null;
+    if (!resolvedRoom) {
+      const areaId = entityAreaId(hass, id);
+      if (areaId) {
+        const z = zonesOf(floor).find((r) => r.area_id === areaId);
+        if (z) resolvedRoom = { id: z.id, name: z.name || z.id };
+        else fallbackAreaName = hass.areas?.[areaId]?.name ?? null;
       }
     }
-    const loc = matchedRoom
-      ? floors.length > 1 && matchedFloor
-        ? `${matchedFloor.name} · ${matchedRoom.name}`
-        : matchedRoom.name
-      : area?.name ?? matchedFloor?.name ?? null;
-    const pic = typeof st?.attributes.entity_picture === "string" ? st.attributes.entity_picture : null;
-    const state = st?.state ?? "unavailable";
-    extra.push({
+
+    const loc = resolvedRoom
+      ? floors.length > 1
+        ? `${floor.name} · ${resolvedRoom.name}`
+        : resolvedRoom.name
+      : fallbackAreaName
+        ? floors.length > 1
+          ? `${floor.name} · ${fallbackAreaName}`
+          : fallbackAreaName
+        : floor.name || null;
+
+    const pic = typeof st.attributes.entity_picture === "string" ? st.attributes.entity_picture : null;
+    const state = st.state ?? "unavailable";
+    out.push({
       entityId: id,
-      label: entityName(hass, id),
+      label: (customName && customName.trim()) || entityName(hass, id),
       location: loc,
-      floorId: matchedFloor?.id ?? null,
-      floorName: matchedFloor ? matchedFloor.name || matchedFloor.id : null,
-      roomId: matchedRoom?.id ?? null,
-      online: !!st && state !== "unavailable" && state !== "unknown",
+      floorId: floor.id,
+      floorName: floor.name || floor.id,
+      roomId: resolvedRoom?.id ?? null,
+      online: state !== "unavailable" && state !== "unknown",
       state,
       pictureUrl: pic,
       streamUrl: toStreamUrl(pic),
     });
+  };
+
+  for (const floor of floors) {
+    for (const p of floor.placements ?? []) {
+      if (!p.entity_id.startsWith("camera.")) continue;
+      pushCamera(p.entity_id, floor, findRoomAt(floor, p.x, p.z), p.name);
+    }
+    for (const f of floor.furniture ?? []) {
+      const camId = f.look_of?.startsWith("camera.") ? f.look_of : f.entity?.startsWith("camera.") ? f.entity : null;
+      if (camId) pushCamera(camId, floor, findRoomAt(floor, f.x, f.z), f.name);
+    }
+    for (const r of zonesOf(floor)) {
+      const hidden = new Set(r.hidden ?? []);
+      for (const id of r.panel ?? []) {
+        if (id.startsWith("camera.") && !hidden.has(id)) {
+          pushCamera(id, floor, { id: r.id, name: r.name || r.id });
+        }
+      }
+    }
   }
 
-  extra.sort((a, b) => a.label.localeCompare(b.label));
-  return [...placed, ...extra];
+  return out;
 }
 
-/** Quick count of available camera entities for toolbar badge display. */
+/** Quick count of cameras placed/linked in the house for toolbar badge display. */
 export function countMosaicCameras(hass: HomeAssistant | undefined, building: Building | null | undefined): number {
   return collectMosaicCameras(hass, building).length;
 }

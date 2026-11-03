@@ -462,7 +462,9 @@ clearTimeout(this.cleanTimer);
               ${c?.camera_wall
                 ? hasFeature("camera_cockpit")
                   ? html`<button class="fp3d-chip" aria-pressed=${this._cameraWall} title=${t("camera_wall_hint")} @click=${() => (this._cameraWall = !this._cameraWall)}>${t("cameras_short")}</button>`
-                  : html`<button class="fp3d-chip" aria-pressed=${this._mosaicOpen} @click=${() => (this._mosaicOpen = !this._mosaicOpen)}>📹 ${t("cameras_short")}${countMosaicCameras(this.hass, b) ? ` (${countMosaicCameras(this.hass, b)})` : ""}</button>`
+                  : countMosaicCameras(this.hass, b) > 0
+                    ? html`<button class="fp3d-chip" aria-pressed=${this._mosaicOpen} @click=${() => (this._mosaicOpen = !this._mosaicOpen)}>📹 ${t("cameras_short")} (${countMosaicCameras(this.hass, b)})</button>`
+                    : nothing
                 : nothing}
               ${shows("walls")
                 ? html`<div class="fp3d-seg">
