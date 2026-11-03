@@ -5,8 +5,10 @@ import { confirmEntities } from "./devices.ts";
 import { countView } from "./diagnostics.ts";
 import { css, html, LitElement, nothing, type PropertyValues } from "lit";
 import { BuildingController } from "./building-controller.ts";
+import "./components/camera-mosaic.ts";
 import "./components/room-panel.ts";
 import "./components/view3d.ts";
+import { countMosaicCameras } from "./camera-mosaic-data.ts";
 import { languageReady, loadLanguage, translate, type I18nKey } from "./i18n.ts";
 import { controls, tokens } from "./styles.ts";
 import type { HomeAssistant } from "./types.ts";
@@ -43,6 +45,7 @@ export class Floorplan3dCard extends LitElement {
     _vh: { state: true },
     _top: { state: true },
     _cameraWall: { state: true },
+    _mosaicOpen: { state: true },
     _clean: { state: true },
     _night: { state: true },
     _orbit: { state: true },
@@ -66,6 +69,7 @@ export class Floorplan3dCard extends LitElement {
   private declare _vh: number;
   private declare _top: number | null;
   private declare _cameraWall: boolean;
+  private declare _mosaicOpen: boolean;
   /** Clean view: only the stage (card option controls_hidden, the eye, or the hide-after timer). */
   private declare _clean: boolean;
   private cleanTimer: ReturnType<typeof setTimeout> | undefined;
@@ -91,6 +95,7 @@ export class Floorplan3dCard extends LitElement {
     this._vh = window.innerHeight;
     this._top = null;
     this._cameraWall = false;
+    this._mosaicOpen = false;
     this._clean = false;
     this._night = false;
     this._orbit = false;
@@ -136,6 +141,7 @@ export class Floorplan3dCard extends LitElement {
       return;
     }
     this._cameraWall = false;
+    this._mosaicOpen = false;
     const c = this._config;
     this.tt.start({ live: this.hass, building: b, spec: view.historyEntities(), quality: c?.quality ?? "auto", speed: c?.time_travel_speed ?? null, range: c?.time_travel_range ?? null, t: (k, vars) => translate(this.hass, k as I18nKey, vars) });
   }
@@ -341,7 +347,7 @@ clearTimeout(this.cleanTimer);
           : "calc(100vh - var(--header-height, 56px) - 2px)"
         : `${height}px`;
     // the bar of switches at the bottom (the back button belongs to it)
-    const bar = !!b && !this._clean && (canGoBack || ((!!c?.controls || !!c?.time_travel) && !(this._roomId && c.room_panel !== false)));
+    const bar = !!b && !this._clean && (canGoBack || ((!!c?.controls || !!c?.time_travel || !!c?.camera_wall) && !(this._roomId && c.room_panel !== false)));
     const tt = this.tt.active;
     const eye = c?.controls_hidden !== undefined || (c?.controls_hide_after ?? 0) > 0;
     const t = (k: Parameters<typeof translate>[1]) => translate(this.hass, k);
@@ -448,12 +454,16 @@ clearTimeout(this.cleanTimer);
         ${bar && b
           ? html`<div class="fp3d-card-controls">
               ${canGoBack ? html`<button class="fp3d-chip" @click=${() => this.back()}>${t("back")}</button>` : nothing}
-              ${c?.time_travel
+              ${c?.time_travel && hasFeature("time_travel")
                 ? html`<button class="fp3d-chip fp3d-tt-chip" aria-pressed=${tt} title=${t("tt_hint")} @click=${() => this.toggleTimeTravel()}>
-                    ${hasFeature("time_travel") ? "⏪" : "🔒"} ${t("tt_chip")}
+                    ⏪ ${t("tt_chip")}
                   </button>`
                 : nothing}
-              ${c?.camera_wall ? html`<button class="fp3d-chip" aria-pressed=${this._cameraWall} title=${t("camera_wall_hint")} @click=${() => (this._cameraWall = !this._cameraWall)}>${t("cameras_short")}</button>` : nothing}
+              ${c?.camera_wall
+                ? hasFeature("camera_cockpit")
+                  ? html`<button class="fp3d-chip" aria-pressed=${this._cameraWall} title=${t("camera_wall_hint")} @click=${() => (this._cameraWall = !this._cameraWall)}>${t("cameras_short")}</button>`
+                  : html`<button class="fp3d-chip" aria-pressed=${this._mosaicOpen} @click=${() => (this._mosaicOpen = !this._mosaicOpen)}>📹 ${t("cameras_short")}${countMosaicCameras(this.hass, b) ? ` (${countMosaicCameras(this.hass, b)})` : ""}</button>`
+                : nothing}
               ${shows("walls")
                 ? html`<div class="fp3d-seg">
                     <button aria-pressed=${walls === "auto"} @click=${() => this.setWalls("auto")}>${t("walls_auto")}</button>
@@ -488,6 +498,19 @@ clearTimeout(this.cleanTimer);
           ? html`<button class="fp3d-card-full fp3d-card-dash ${c.fullscreen_button ? "fp3d-card-dash-2" : ""}" title=${c.dashboard_label || c.dashboard} aria-label=${c.dashboard_label || c.dashboard} @click=${() => this.openDashboard(c.dashboard!)}>
               ${c.dashboard_label ? html`<span>${c.dashboard_label}</span>` : "⌂"}
             </button>`
+          : nothing}
+        ${!hasFeature("camera_cockpit")
+          ? html`<np-camera-mosaic
+              .hass=${this.hass}
+              .building=${b}
+              .open=${this._mosaicOpen}
+              @mosaic-close=${() => (this._mosaicOpen = false)}
+              @mosaic-jump=${(e: CustomEvent<{ floorId: string | null; roomId: string | null }>) => {
+                this._floorId = e.detail.floorId;
+                this._roomId = e.detail.roomId;
+                this._mosaicOpen = false;
+              }}
+            ></np-camera-mosaic>`
           : nothing}
       </div>
     </ha-card>`;

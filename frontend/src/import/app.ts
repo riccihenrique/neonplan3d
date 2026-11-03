@@ -317,7 +317,7 @@ function optionsHtml(): string {
   const parts: string[] = [];
   if (r.raw) {
     parts.push(check("join", t.join, t.join_hint), check("align", t.align, t.align_hint), check("square", t.square), check("furniture", t.with_furniture), check("mirror", t.mirror));
-    parts.push(`<label>${esc(t.turn)} <select data-opt="turn">${[0, 90, 180, 270].map((v) => `<option value="${v}" ${o.turn === v ? "selected" : ""}>${v}°</option>`).join("")}</select></label>`);
+    parts.push(`<label>${esc(t.turn)} <input type="number" step="any" data-opt="turn" value="${o.turn ?? 0}" style="width:72px">°</label>`);
   }
   if (r.kind === "dxf") {
     const units: [string, number | null][] = [[t.auto, null], ["mm", 0.001], ["cm", 0.01], ["m", 1], ["inch", 0.0254]];

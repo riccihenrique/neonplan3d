@@ -89,9 +89,11 @@ export class Fp3dQuickMenu extends LitElement {
     return html`<button class="qm-camera" title=${this.t("camera_live")} @click=${() => this.details()}>
         ${src ? html`<img src=${src} alt=${entityName(this.hass, this.entity)} />` : html`<span class="qm-note">${stateText(this.hass, st)}</span>`}
       </button>
-      <button class="qm-details qm-look" @click=${() => this.dispatchEvent(new CustomEvent("camera-look", { detail: { entity: this.entity }, bubbles: true, composed: true }))}>
-        ${this.pro ? "" : "🔒 "}${this.t("through_camera")}
-      </button>`;
+      ${this.pro
+        ? html`<button class="qm-details qm-look" @click=${() => this.dispatchEvent(new CustomEvent("camera-look", { detail: { entity: this.entity }, bubbles: true, composed: true }))}>
+            ${this.t("through_camera")}
+          </button>`
+        : nothing}`;
   }
 
   private t(key: I18nKey, vars?: Record<string, string | number>): string {

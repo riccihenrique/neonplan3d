@@ -84,8 +84,8 @@ export interface BuildOptions {
   furniture?: boolean;
   /** Mirror left–right (some programs save the plan mirrored). */
   mirror?: boolean;
-  /** Turn the whole plan by 90° steps. */
-  turn?: 0 | 90 | 180 | 270;
+  /** Turn the whole plan by any angle in degrees (clockwise in the plan). */
+  turn?: number;
   /** Turn the plan so most walls run along x and z (default: for scans, models and robot maps). */
   align?: boolean;
   /** Language of made-up names ("Raum 3" / "Room 3"). */
@@ -154,20 +154,14 @@ export function buildPlan(raw: RawPlan, options: BuildOptions = {}): BuildResult
   }
   const ct = Math.cos(tilt);
   const st = Math.sin(tilt);
+  const tr = (((opt.turn || 0) * Math.PI) / 180);
+  const cr = Math.round(Math.cos(tr) * 1e9) / 1e9;
+  const sr = Math.round(Math.sin(tr) * 1e9) / 1e9;
   // the whole plan turned or mirrored first, so everything below works in the final orientation
   const turn = (p: Vec2): Vec2 => {
     let [x, z] = [p[0] * ct - p[1] * st, p[0] * st + p[1] * ct];
     if (opt.mirror) x = -x;
-    switch (opt.turn) {
-      case 90:
-        return [-z, x];
-      case 180:
-        return [-x, -z];
-      case 270:
-        return [z, -x];
-      default:
-        return [x, z];
-    }
+    return [x * cr - z * sr, x * sr + z * cr];
   };
   const turnAngle = (deg: number) => (opt.mirror ? -(deg + (tilt * 180) / Math.PI) : deg + (tilt * 180) / Math.PI) + opt.turn;
   const floorsIn = raw.floors.map((f) => ({
@@ -254,7 +248,14 @@ export function buildPlan(raw: RawPlan, options: BuildOptions = {}): BuildResult
       warnings.push({ code: "room_tiny", floor: floor.name, name: r.name });
       return false;
     });
-    if (opt.square) rooms = rooms.map((r) => ({ ...r, points: cleanPolygon(squareUp(r.points)) }));
+    if (opt.square) {
+      const squarePts = (pts: readonly Vec2[]): Vec2[] => {
+        if (Math.abs((opt.turn || 0) % 90) < 1e-6) return squareUp(pts);
+        const back = pts.map(([x, z]): Vec2 => [x * cr + z * sr, -x * sr + z * cr]);
+        return squareUp(back).map(([x, z]): Vec2 => [r3(x * cr - z * sr), r3(x * sr + z * cr)]);
+      };
+      rooms = rooms.map((r) => ({ ...r, points: cleanPolygon(squarePts(r.points)) }));
+    }
     // rooms at inner faces (or found between wall faces): neighbours a wall apart share one edge
     if (rooms.length > 1 && (opt.join || (fromWalls && raw.wallFaces))) {
       const maxGap = clamp((exterior ?? 0.4) + 0.08, 0.2, 0.7);

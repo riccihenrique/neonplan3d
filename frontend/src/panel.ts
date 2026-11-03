@@ -5,8 +5,10 @@ import { css, html, LitElement, nothing, type PropertyValues } from "lit";
 import { BuildingController } from "./building-controller.ts";
 import { countView } from "./diagnostics.ts";
 import { loadEditor } from "./load-editor.ts";
+import "./components/camera-mosaic.ts";
 import "./components/room-panel.ts";
 import "./components/view3d.ts";
+import { countMosaicCameras } from "./camera-mosaic-data.ts";
 import { languageReady, loadLanguage, translate, type I18nKey } from "./i18n.ts";
 import type { Building, StartView } from "./model.ts";
 import { controls, tokens } from "./styles.ts";
@@ -19,7 +21,7 @@ import { furnitureName } from "./furniture-names.ts";
 import { confirmEntities, defaultHeight, entityName, kindOf } from "./devices.ts";
 import { canLift, zonesOf, type LampMount } from "./model.ts";
 import { mountBase, packsVersion } from "./packs.ts";
-import { hasFeature, labOn, registerUrl, UNRELEASED } from "./features.ts";
+import { hasFeature, labOn } from "./features.ts";
 import { mountLocateLab } from "./locate-lab.ts";
 import { directorOnHere } from "./director.ts";
 import { loadVoice, micProbeDone, screenName, voiceOnHere } from "./load-voice.ts";
@@ -91,6 +93,7 @@ export class Floorplan3dPanel extends LitElement {
     _angleLock: { state: true },
     _trail: { state: true },
     _cameraWall: { state: true },
+    _mosaicOpen: { state: true },
     _clean: { state: true },
     _navWrap: { state: true },
     _optsOpen: { state: true },
@@ -152,6 +155,7 @@ export class Floorplan3dPanel extends LitElement {
   /** Motion trail of the last half hour in 3D. */
   private declare _trail: boolean;
   private declare _cameraWall: boolean;
+  private declare _mosaicOpen: boolean;
   /** Clean view (the eye): only the stage, remembered on this device. */
   private declare _clean: boolean;
   /** The floor and room bar wraps onto several lines instead of scrolling sideways (remembered on this device). */
@@ -224,6 +228,7 @@ export class Floorplan3dPanel extends LitElement {
     this._angleLock = prefs.get("angle_lock") === "1";
     this._trail = prefs.get("trail") === "1";
     this._cameraWall = false;
+    this._mosaicOpen = false;
     this._clean = prefs.get("clean") === "1";
     this._navWrap = prefs.get("nav_wrap") === "1";
     this._optsOpen = false;
@@ -792,42 +797,10 @@ export class Floorplan3dPanel extends LitElement {
     `;
   }
 
-  /**
-   * A gift for everyone (the fun pack "Halloween"), once per admin until "don't show again": connected to the shop,
-   * it is waiting under Extensions; not connected, a free customer account brings it (and connects the app).
-   */
   private renderGift() {
-    const id = "fun_gifts_2026";
-    // only once the installed packs are known, so it never flashes up for whoever has both
-    if (!this.isAdmin || this._giftLater || this._shopConnected === null || !this.data.packsLoaded || UNRELEASED.includes("fun_halloween") || (hasFeature("fun_halloween") && hasFeature("fun_pets"))) return nothing;
-    try {
-      if (localStorage.getItem(`neonplan3d.news.${id}`) === "never") return nothing;
-    } catch {
-      // no storage: shown each visit until "later"
-    }
-    const never = () => {
-      try {
-        localStorage.setItem(`neonplan3d.news.${id}`, "never");
-      } catch {
-        // a private window
-      }
-      this._giftLater = true;
-    };
-    const connected = this._shopConnected;
-    return html`<div class="fp3d-gift-veil" @click=${(e: Event) => e.target === e.currentTarget && (this._giftLater = true)}>
-      <div class="fp3d-gift" role="dialog" aria-label=${this.t(connected ? "gift_title" : "gift_title_free")}>
-        <div class="fp3d-gift-pic">🎃 👻 🐱 🐶</div>
-        <h3>${this.t(connected ? "gift_title" : "gift_title_free")}</h3>
-        <p>${this.t(connected ? "gift_text" : "gift_text_free")}</p>
-        <div class="fp3d-gift-actions">
-          ${connected
-            ? html`<button class="fp3d-btn fp3d-primary" @click=${() => ((this._giftLater = true), this.setMode("extensions"))}>⬇ ${this.t("gift_install")}</button>`
-            : html`<a class="fp3d-btn fp3d-primary" href=${registerUrl(this.hass?.language)} target="_blank" rel="noopener" @click=${() => (this._giftLater = true)}>🎁 ${this.t("gift_register")}</a>`}
-          <button class="fp3d-btn" @click=${() => (this._giftLater = true)}>${this.t("news_later")}</button>
-          <button class="fp3d-btn" @click=${never}>${this.t("news_never")}</button>
-        </div>
-      </div>
-    </div>`;
+    void this._giftLater;
+    void this._shopConnected;
+    return nothing;
   }
 
   /** Restart hint, save errors and unsaved edits from an earlier session. */
@@ -1124,42 +1097,53 @@ export class Floorplan3dPanel extends LitElement {
           >
             ${this.t("room_names_short")}
           </button>
-          <button
-            class="fp3d-chip"
-            aria-pressed=${this._trail}
-            title=${this.t("trail_hint")}
-            @click=${() => {
-              this._trail = !this._trail;
-              prefs.set("trail", this._trail ? "1" : "0");
-            }}
-          >
-            ${hasFeature("camera_cockpit") ? "" : "🔒 "}${this.t("trail_short")}
-          </button>
-          <button
-            class="fp3d-chip"
-            aria-pressed=${this._cameraWall}
-            title=${this.t("camera_wall_hint")}
-            @click=${() => (this._cameraWall = !this._cameraWall)}
-          >
-            ${hasFeature("camera_cockpit") ? "" : "🔒 "}${this.t("cameras_short")}
-          </button>
-          <button
-            class="fp3d-chip"
-            aria-pressed=${this._weather}
-            title=${this.t("weather_hint")}
-            @click=${() => {
-              this._weather = !this._weather;
-              prefs.set("weather", this._weather ? "1" : "0");
-            }}
-          >
-            ${hasFeature("weather") ? "" : "🔒 "}${this.t("weather_short")}
-          </button>
+          ${hasFeature("camera_cockpit")
+            ? html`<button
+                  class="fp3d-chip"
+                  aria-pressed=${this._trail}
+                  title=${this.t("trail_hint")}
+                  @click=${() => {
+                    this._trail = !this._trail;
+                    prefs.set("trail", this._trail ? "1" : "0");
+                  }}
+                >
+                  ${this.t("trail_short")}
+                </button>
+                <button
+                  class="fp3d-chip"
+                  aria-pressed=${this._cameraWall}
+                  title=${this.t("camera_wall_hint")}
+                  @click=${() => (this._cameraWall = !this._cameraWall)}
+                >
+                  ${this.t("cameras_short")}
+                </button>`
+            : nothing}
+          ${hasFeature("weather")
+            ? html`<button
+                class="fp3d-chip"
+                aria-pressed=${this._weather}
+                title=${this.t("weather_hint")}
+                @click=${() => {
+                  this._weather = !this._weather;
+                  prefs.set("weather", this._weather ? "1" : "0");
+                }}
+              >
+                ${this.t("weather_short")}
+              </button>`
+            : nothing}
                   </div>`
               : nothing}
           </div>
-          <button class="fp3d-chip fp3d-tt-chip" aria-pressed=${tt} title=${this.t("tt_hint")} @click=${() => this.toggleTimeTravel()}>
-            ${hasFeature("time_travel") ? "⏪" : "🔒"} ${this.t("tt_chip")}
-          </button>
+          ${!hasFeature("camera_cockpit")
+            ? html`<button class="fp3d-chip" aria-pressed=${this._mosaicOpen} @click=${() => (this._mosaicOpen = !this._mosaicOpen)}>
+                📹 ${this.t("cameras_short")}${countMosaicCameras(this.hass, b) ? ` (${countMosaicCameras(this.hass, b)})` : ""}
+              </button>`
+            : nothing}
+          ${hasFeature("time_travel")
+            ? html`<button class="fp3d-chip fp3d-tt-chip" aria-pressed=${tt} title=${this.t("tt_hint")} @click=${() => this.toggleTimeTravel()}>
+                ⏪ ${this.t("tt_chip")}
+              </button>`
+            : nothing}
           ${this._roomId || (this._floorId && b.floors.length > 1)
             ? html`<button class="fp3d-chip" @click=${() => this.back()}>${this.t("back")}</button>`
             : nothing}
@@ -1183,6 +1167,19 @@ export class Floorplan3dPanel extends LitElement {
               <button class="fp3d-chip fp3d-chip-on" @click=${() => ((this._furnish = false), (this._selFurniture = null), (this._selDevice = null))}>${this.t("done")}</button>
             </div>`
           : nothing}
+        ${!hasFeature("camera_cockpit")
+          ? html`<np-camera-mosaic
+              .hass=${this.hass}
+              .building=${b}
+              .open=${this._mosaicOpen}
+              @mosaic-close=${() => (this._mosaicOpen = false)}
+              @mosaic-jump=${(e: CustomEvent<{ floorId: string | null; roomId: string | null }>) => {
+                this._floorId = e.detail.floorId;
+                this._roomId = e.detail.roomId;
+                this._mosaicOpen = false;
+              }}
+            ></np-camera-mosaic>`
+          : nothing}
       </div>
     `;
   }
@@ -1191,41 +1188,6 @@ export class Floorplan3dPanel extends LitElement {
     tokens,
     controls,
     css`
-      .fp3d-gift-veil {
-        position: fixed;
-        inset: 0;
-        z-index: 40;
-        display: grid;
-        place-items: center;
-        padding: 16px;
-        background: rgba(2, 6, 14, 0.55);
-      }
-      .fp3d-gift {
-        max-width: 440px;
-        padding: 22px 22px 18px;
-        border-radius: 18px;
-        border: 1px solid #ff9a3c;
-        background: var(--fp3d-panel, #0d1628);
-        box-shadow: 0 0 40px rgba(255, 154, 60, 0.3);
-        text-align: center;
-      }
-      .fp3d-gift-pic {
-        font-size: 34px;
-        letter-spacing: 6px;
-      }
-      .fp3d-gift h3 {
-        margin: 10px 0 6px;
-      }
-      .fp3d-gift p {
-        margin: 0 0 14px;
-        color: var(--fp3d-muted, #a9b8d4);
-      }
-      .fp3d-gift-actions {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        justify-content: center;
-      }
       .fp3d-badge {
         display: inline-block;
         margin-left: 6px;

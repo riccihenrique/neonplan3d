@@ -518,13 +518,13 @@ export class Fp3dRoomPanel extends LitElement {
         ${src ? html`<img src=${src} alt=${this.name(st.entity_id)} loading="lazy" />` : html`<span class="fp3d-rp-note">${stateText(this.hass, st)}</span>`}
         <span class="fp3d-rp-camera-name">${this.name(st.entity_id)}</span>
       </button>
-      ${placed
+      ${placed && hasFeature("camera_cockpit")
         ? html`<button
             class="fp3d-rp-look"
             title=${this.t("through_camera")}
             @click=${() => this.dispatchEvent(new CustomEvent("camera-look", { detail: { entity: st.entity_id }, bubbles: true, composed: true }))}
           >
-            ${hasFeature("camera_cockpit") ? "" : "🔒 "}${this.t("through_camera")}
+            ${this.t("through_camera")}
           </button>`
         : nothing}
     </div>`;

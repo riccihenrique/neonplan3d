@@ -130,7 +130,7 @@ export function snapToWall(floor: Floor, f: Furniture, wallInterior: number, rea
     best = {
       x: round(f.x - n[0] * gap),
       z: round(f.z - n[1] * gap),
-      rotation: ((Math.round(pick.rotation) % 360) + 360) % 360,
+      rotation: (((Math.round(pick.rotation * 10) / 10) % 360) + 360) % 360,
       gap,
     };
   }

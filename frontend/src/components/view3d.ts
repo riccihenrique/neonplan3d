@@ -110,7 +110,7 @@ import { parkedVehicle, PRESENT_STATES, parkedVehicles, vehicleFurniture } from 
 import { TRAIL_ICON, TRAIL_WINDOW_MS, trailEvents, trailPoints, trailSources, trailTime, type HistoryRow } from "../trail.ts";
 import { limitEffects, weatherEntity, weatherState } from "../weather.ts";
 import { SHOW_PRESENCE } from "../flags.ts";
-import { hasFeature, manualUrl, projectionOn, released, shopUrl, type Feature } from "../features.ts";
+import { hasFeature, projectionOn, released, type Feature } from "../features.ts";
 import { searchIndex, searchItems, type SearchItem } from "../search.ts";
 import type { Shown } from "../voice/targets.ts";
 import { anyModule, moduleAlerts, moduleCards, moduleMenuSheets, modulePools, moduleRoomSheets, moduleScene, moduleSettings, modulesWithSettings, moduleVoice, moduleWatched, syncModules, type ModuleCard, type ModuleField, type ModuleHost, type ModuleSheet, type ScenePiece, type SpokenAlert, type SpokenCar, type SpokenDevice, type SpokenOpening, type VoiceAnswer } from "../modules.ts";
@@ -1687,9 +1687,8 @@ export class Fp3dView3d extends LitElement {
     return { entities, openings: [...openings], furniture: [...furniture], low: this._low, cars, energy: hasFeature("energy_pro"), auto: hasFeature("auto_pro") };
   }
 
-  /** Shows the hint of a Pro add-on that is not installed (with the shop link). */
-  proHint(feature: Feature): void {
-    this._proHint = feature;
+  proHint(_feature: Feature): void {
+    // Pro upsell dialog intentionally disabled in this fork.
   }
 
   /** Time travel: a tap shows the device's state at the replayed moment ("on · 60 % · since 07:42"). */
@@ -3305,7 +3304,6 @@ export class Fp3dView3d extends LitElement {
   private watchTrail(): void {
     clearInterval(this.trailTimer);
     this.trailTimer = undefined;
-    if (this.trail && !hasFeature("camera_cockpit")) this._proHint = "camera_cockpit";
     // time travel brings its own rows (see trailNow)
     if (!this.trail || !hasFeature("camera_cockpit") || this.replay) {
       this.trailRows = {};
@@ -4440,7 +4438,6 @@ export class Fp3dView3d extends LitElement {
         this.directing.touch(Date.now());
         if (place.kind === "cameras") {
           if (hasFeature("camera_cockpit")) this.dispatchEvent(new CustomEvent("camera-wall-open", { bubbles: true, composed: true }));
-          else this._proHint = "camera_cockpit";
         } else if (place.kind === "device") {
           const item = items.get(place.id);
           // a camera is looked through (Kamera-Cockpit), any other device shown where it stands
@@ -5135,7 +5132,6 @@ export class Fp3dView3d extends LitElement {
     if (!v || !b || this.ro) return;
     if (!hasFeature("camera_cockpit")) {
       this._menu = null;
-      this._proHint = "camera_cockpit";
       return;
     }
     const floorId = b.floors.find((f) => f.placements.some((p) => p.entity_id === entityId))?.id;
@@ -5168,37 +5164,20 @@ export class Fp3dView3d extends LitElement {
     }
   }
 
-  /** The hint shown when a Pro feature is used without the Pro pack. */
   private renderProHint() {
-    if (!this._proHint || !this.hass) return nothing;
-    return html`<div class="fp3d-pro" role="dialog">
-      <b>${translate(this.hass, "pro_title")}</b>
-      <span>${translate(this.hass, `pro_feature_${this._proHint}` as I18nKey)}</span>
-      <span class="fp3d-sub">${translate(this.hass, "pro_locked")}</span>
-      <div>
-        <a class="fp3d-chip fp3d-chip-on" href=${shopUrl(this.hass.language)} target="_blank" rel="noopener">${translate(this.hass, "pro_shop")}</a>
-        <a class="fp3d-chip" href=${manualUrl(this.hass.language, this._proHint)} target="_blank" rel="noopener">${translate(this.hass, "manual_more")}</a>
-        <button class="fp3d-chip" @click=${() => ((this._proHint = null), this.fire("open-extensions", null))}>${translate(this.hass, "ext_tab")}</button>
-        <button class="fp3d-chip" @click=${() => (this._proHint = null)}>${translate(this.hass, "close")}</button>
-      </div>
-    </div>`;
+    void this._proHint;
+    return nothing;
   }
 
   /** Kamera-Cockpit: the camera wall – every placed camera's picture, refreshed every few seconds; a tap looks through it. */
   private renderCameraWall() {
-    if (!this.cameraWall || !this.hass || !this.building || this.ro) return nothing;
+    if (!this.cameraWall || !this.hass || !this.building || this.ro || !hasFeature("camera_cockpit")) return nothing;
     const hass = this.hass;
     const close = () => {
       this._wallBig = null;
       this.live = null;
       this.dispatchEvent(new CustomEvent("camera-wall-close", { bubbles: true, composed: true }));
     };
-    if (!hasFeature("camera_cockpit")) {
-      return html`<div class="fp3d-wall">
-        <div class="fp3d-wall-head"><span>${translate(hass, "camera_wall_title")}</span><button class="fp3d-chip" @click=${close}>✕</button></div>
-        <p class="fp3d-wall-pro">🔒 ${translate(hass, "pro_feature_camera_cockpit")}</p>
-      </div>`;
-    }
     const cameras = [...new Set(this.building.floors.flatMap((f) => f.placements.map((p) => p.entity_id)).filter((id) => kindOf(id) === "camera"))];
     this.watchCameras(true);
     const srcOf = (id: string) => {

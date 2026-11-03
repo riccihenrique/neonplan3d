@@ -19,9 +19,9 @@ import { holeInRoom } from "../geometry/holes.ts";
 import { weatherEntity, isRainSource } from "../weather.ts";
 import { isOutageSource } from "../outage.ts";
 import { SHOW_PRESENCE } from "../flags.ts";
-import { hasFeature, labOn, manualUrl, released, shopUrl, UNRELEASED } from "../features.ts";
+import { hasFeature, labOn, manualUrl, released } from "../features.ts";
 import { loadLocate } from "../load-locate.ts";
-import { isBeta, supporterUrl } from "../beta.ts";
+import { rotateBuildingOrFloor } from "../rotate-plan.ts";
 import { openPrint } from "../print.ts";
 import { BIN_SHAPES, BIN_SIZE, binColors, binShape, householdCountry, isPackPlant, MAILBOX_SHAPES, MAILBOX_SIZE, mailboxShape, WASTE_KINDS, wasteColors } from "../household.ts";
 import { cameraMotionSensors, cameraOwnSensors, detectionKind, setCameraSensors } from "../markers.ts";
@@ -355,6 +355,7 @@ export class Fp3dEditor extends LitElement {
   static properties = {
     _shiftX: { state: true },
     _shiftAll: { state: true },
+    _turnDeg: { state: true },
     _bgEdit: { state: true },
     _bgRuler: { state: true },
     _bgRulerLen: { state: true },
@@ -620,6 +621,8 @@ export class Fp3dEditor extends LitElement {
   private declare _shiftX: number;
   /** Shift and turn take every floor with them (roof, outdoor areas, cables, hologram included). */
   private declare _shiftAll: boolean;
+  /** Custom angle in degrees for rotating a floor, the whole house, or a multi-selection. */
+  private declare _turnDeg: number;
   /** The background picture is being moved and scaled in the plan (drag it, pull its corner). */
   private declare _bgEdit: boolean;
   /** Scale the background with a ruler (#183): null = off, else the points tapped so far (two = waiting for the length). */
@@ -761,6 +764,7 @@ export class Fp3dEditor extends LitElement {
     })();
     this._shiftX = 0;
     this._shiftAll = false;
+    this._turnDeg = 90;
     this._bgEdit = false;
     this._bgRuler = null;
     this._bgRulerLen = 0;
@@ -1219,18 +1223,8 @@ export class Fp3dEditor extends LitElement {
     }
   }
 
-  /** Once per page: an admin with the usage reports off (and the invitation never closed) is invited. */
   private checkDiagInvite(): void {
-    if (this.diagInviteChecked || !this.hass || !this.isAdmin || !released("diagnostics")) return;
-    this.diagInviteChecked = true;
-    try {
-      if (localStorage.getItem("neonplan3d.diagInvite") === "0") return;
-    } catch {
-      return;
-    }
-    void getDiagnostics(this.hass)
-      .then((d) => (this._diagInvite = !d.enabled))
-      .catch(() => undefined);
+    void this.diagInviteChecked;
   }
 
   private closeDiagInvite(): void {
@@ -4189,7 +4183,7 @@ export class Fp3dEditor extends LitElement {
         ? { state: batteryOk ? "ok" : "todo", label: this.t(batteryOk ? "chk_battery" : "chk_battery_sensor"), action: () => goTo(batteries[0]) }
         : { state: "opt", label: this.t("chk_battery_opt"), action: () => this.addEnergyDevice("home_battery") },
       grid.length ? { state: "ok", label: this.t("chk_grid"), action: () => goTo(grid[0]) } : { state: "opt", label: this.t("chk_grid_opt"), action: () => this.addEnergyDevice("grid_point") },
-      pro ? { state: "ok", label: this.t("chk_pro_active") } : { state: "opt", label: this.t("chk_pro_get"), href: shopUrl(this.hass?.language) },
+      ...(pro ? [{ state: "ok" as const, label: this.t("chk_pro_active") }] : []),
     ];
     const done = rows.filter((r) => r.state === "ok").length;
     return html`<section class="fp3d-checklist">
@@ -4216,27 +4210,13 @@ export class Fp3dEditor extends LitElement {
     </section>`;
   }
 
-  /** The Pro add-on: active (with the manual), or what it brings and where to get it. */
+  /** The Pro add-on: shown only when active (no shop teaser). */
   private renderProCard() {
     const lang = this.hass?.language;
-    if (hasFeature("energy_pro")) {
-      return html`<section class="fp3d-teaser fp3d-teaser-on">
-        <div class="fp3d-teaser-head"><b>✓ ${this.t("energy_pro_active")}</b></div>
-        <p class="fp3d-sub">${this.t("energy_pro_active_hint")}</p>
-        <div class="fp3d-actions"><a class="fp3d-btn" href=${manualUrl(lang, "energy_pro")} target="_blank" rel="noopener">📖 ${this.t("manual")}</a></div>
-      </section>`;
-    }
-    const picture = new URL("./images/solar-pro.jpg", import.meta.url).href;
-    return html`<section class="fp3d-teaser">
-      <div class="fp3d-teaser-head"><b>⚡ ${this.t("pro_name_energy_pro")}</b><a class="fp3d-btn fp3d-primary" href=${shopUrl(lang)} target="_blank" rel="noopener">${this.t("pro_unlock")}</a></div>
-      <img src=${picture} alt=${this.t("solar_pro_title")} loading="lazy" />
-      <ul>
-        <li>${this.t("solar_pro_1")}</li>
-        <li>${this.t("solar_pro_2")}</li>
-        <li>${this.t("solar_pro_3")}</li>
-        <li>${this.t("solar_pro_4")}</li>
-      </ul>
-      <p class="fp3d-sub">${this.t("solar_pro_free")}</p>
+    if (!hasFeature("energy_pro")) return nothing;
+    return html`<section class="fp3d-teaser fp3d-teaser-on">
+      <div class="fp3d-teaser-head"><b>✓ ${this.t("energy_pro_active")}</b></div>
+      <p class="fp3d-sub">${this.t("energy_pro_active_hint")}</p>
       <div class="fp3d-actions"><a class="fp3d-btn" href=${manualUrl(lang, "energy_pro")} target="_blank" rel="noopener">📖 ${this.t("manual")}</a></div>
     </section>`;
   }
@@ -5329,44 +5309,14 @@ export class Fp3dEditor extends LitElement {
     if (h && h.place === "free" && h.x != null && h.z != null) [h.x, h.z] = mv([h.x, h.z]);
   }
 
-  /** Turn everything on the floor by 90° (clockwise in the plan) about the middle of its rooms: when a floor was drawn the wrong way round. */
-  private turnFloor(): void {
+  /** Turn everything on the floor (or the whole house) by `deg` degrees clockwise about the middle of its rooms. */
+  private turnFloor(deg = this._turnDeg, forceAll = false): void {
     const floor = this.floor;
-    if (!floor || !this.isAdmin) return;
-    // with "all floors" the house turns about the middle of every room on every floor
-    const pts = (this._shiftAll ? this._doc.floors : [floor]).flatMap((f) => f.rooms.flatMap((r) => r.points));
-    if (!pts.length) return;
-    const xs = pts.map((p) => p[0]);
-    const zs = pts.map((p) => p[1]);
-    const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
-    const cz = (Math.min(...zs) + Math.max(...zs)) / 2;
-    const mv = (p: Vec2): Vec2 => [round(cx - (p[1] - cz)), round(cz + (p[0] - cx))];
-    const one = (f: Floor) => {
-      for (const r of f.rooms) r.points = r.points.map(mv);
-      for (const m of f.furniture) {
-        [m.x, m.z] = mv([m.x, m.z]);
-        m.rotation = (m.rotation + 90) % 360;
-      }
-      for (const p of f.placements) {
-        [p.x, p.z] = mv([p.x, p.z]);
-        p.rotation = ((p.rotation ?? 0) + 90) % 360;
-      }
-      for (const a of f.outdoor) a.points = a.points.map(mv);
-      for (const w of f.walls ?? []) {
-        w.a = mv(w.a);
-        w.b = mv(w.b);
-      }
-      if (f.background) {
-        [f.background.x, f.background.z] = mv([f.background.x, f.background.z]);
-        f.background.rotation = ((f.background.rotation ?? 0) + 90) % 360;
-      }
-    };
-    if (this._shiftAll) {
-      this.change((doc) => {
-        for (const f of doc.floors) one(f);
-        this.moveHouseExtras(doc, mv);
-      });
-    } else this.change((_, f) => one(f));
+    const all = forceAll || this._shiftAll;
+    if ((!floor && !all) || !this.isAdmin || !Number.isFinite(deg) || !deg) return;
+    this.change((doc) => {
+      rotateBuildingOrFloor(doc, all ? null : floor!.id, deg);
+    });
   }
 
   private updateFloor(patch: Partial<Floor>): void {
@@ -5443,45 +5393,9 @@ export class Fp3dEditor extends LitElement {
   /** "Later" on the news: gone for this visit of the editor, back the next time. */
   private newsLater = false;
 
-  /**
-   * News from the shop after an update, once per announcement: a new fun pack to pick up (the pets, a present for the
-   * customers). Shown to admins who bought something and do not have it yet, until "don't show again".
-   */
   private renderNews() {
-    // the pets' notice went with the gift notice of the panel (both fun packs free with a customer account)
-    const news: { id: string; feature: "fun_pets" }[] = [];
-    if (this.newsLater || !this.isAdmin) return nothing;
-    const customer = (this.packs ?? []).some((p) => p.licensee);
-    const item = news.find((n) => {
-      if (UNRELEASED.includes(n.feature) || hasFeature(n.feature) || !customer) return false;
-      try {
-        return localStorage.getItem(`neonplan3d.news.${n.id}`) !== "never";
-      } catch {
-        return true;
-      }
-    });
-    if (!item) return nothing;
-    const never = () => {
-      try {
-        localStorage.setItem(`neonplan3d.news.${item.id}`, "never");
-      } catch {
-        // a private window: it only stays away for this visit
-      }
-      this.newsLater = true;
-      this.requestUpdate();
-    };
-    return html`<div class="fp3d-news-veil" @click=${(e: Event) => e.target === e.currentTarget && ((this.newsLater = true), this.requestUpdate())}>
-      <div class="fp3d-news" role="dialog" aria-label=${this.t("news_pets_title")}>
-        <div class="fp3d-news-pic">🐱 🐶 🐰 🐟</div>
-        <h3>${this.t("news_pets_title")}</h3>
-        <p>${this.t("news_pets_text")}</p>
-        <div class="fp3d-news-actions">
-          <a class="fp3d-btn fp3d-primary" href=${shopUrl(this.hass?.language)} target="_blank" rel="noopener" @click=${() => ((this.newsLater = true), this.requestUpdate())}>🎁 ${this.t("news_to_shop")}</a>
-          <button class="fp3d-btn" @click=${() => ((this.newsLater = true), this.requestUpdate())}>${this.t("news_later")}</button>
-          <button class="fp3d-btn" @click=${never}>${this.t("news_never")}</button>
-        </div>
-      </div>
-    </div>`;
+    void this.newsLater;
+    return nothing;
   }
 
   /** Work on another floor (from the floor menu of the toolbar). */
@@ -6172,11 +6086,13 @@ export class Fp3dEditor extends LitElement {
     const detectClass = (id: string) => id.startsWith("binary_sensor.") && ["motion", "occupancy", "presence"].includes(String(hass.states[id]?.attributes.device_class));
     // the list to tick: the camera's own sensors and every one chosen before
     const listed = [...new Set([...own, ...(chosen ?? [])])];
-    return html`<p class="fp3d-sub fp3d-wide">
-        ${sensors.length
-          ? html`${pro ? "" : "🔒 "}${this.t("camera_detect_found", { kinds: kinds.map((k) => this.t(`detect_${k}` as I18nKey)).join(", "), n: sensors.length })}`
-          : this.t("camera_detect_none")}
-      </p>
+    return html`${pro
+        ? html`<p class="fp3d-sub fp3d-wide">
+            ${sensors.length
+              ? this.t("camera_detect_found", { kinds: kinds.map((k) => this.t(`detect_${k}` as I18nKey)).join(", "), n: sensors.length })
+              : this.t("camera_detect_none")}
+          </p>`
+        : nothing}
       <label class="fp3d-check fp3d-wide" title=${this.t("camera_detect_choose_hint")}
         ><input type="checkbox" .checked=${chosen !== null} ?disabled=${!admin} @change=${(ev: Event) => set((ev.target as HTMLInputElement).checked ? [...own] : null)} />
         ${this.t("camera_detect_choose")}</label
@@ -10159,8 +10075,9 @@ export class Fp3dEditor extends LitElement {
         ${block
           ? html`<button class="fp3d-btn" @click=${() => this.ungroupSelection()}>${this.t("block_break")}</button>`
           : html`<button class="fp3d-btn fp3d-primary" @click=${() => this.groupSelection()}>▣ ${this.t("block_make")}</button>`}
-        <button class="fp3d-btn" @click=${() => this.rotateSelection(-90)}>${this.t("rotate_left")}</button>
-        <button class="fp3d-btn" @click=${() => this.rotateSelection(90)}>${this.t("rotate_right")}</button>
+        <input type="number" step="any" style="width:68px" .value=${String(this._turnDeg)} aria-label=${this.t("rotation")} @change=${(e: Event) => (this._turnDeg = Number((e.target as HTMLInputElement).value) || 0)} />
+        <button class="fp3d-btn" ?disabled=${!this._turnDeg} @click=${() => this.rotateSelection(-this._turnDeg)}>↺</button>
+        <button class="fp3d-btn" ?disabled=${!this._turnDeg} @click=${() => this.rotateSelection(this._turnDeg)}>↻</button>
         <button class="fp3d-btn" @click=${() => this.duplicateFurniture()}>${this.t("duplicate")}</button>
         <button class="fp3d-btn ${some ? "fp3d-primary" : ""}" @click=${() => this.lockSelection(!fixed && !some)}>${fixed ? `🔓 ${this.t("unfix")}` : some ? `🔓 ${this.t("unfix_all")}` : `🔒 ${this.t("fix")}`}</button>
         <button class="fp3d-btn fp3d-danger" @click=${() => this.deleteFurniture()}>${this.t("delete")}</button>
@@ -10644,7 +10561,9 @@ export class Fp3dEditor extends LitElement {
                     <input type="number" step="0.05" .value=${String(this._shiftX)} aria-label="X" @change=${(e: Event) => (this._shiftX = Number((e.target as HTMLInputElement).value) || 0)} />
                     <input type="number" step="0.05" .value=${String(this._shiftZ)} aria-label="Z" @change=${(e: Event) => (this._shiftZ = Number((e.target as HTMLInputElement).value) || 0)} />
                     <button class="fp3d-btn" ?disabled=${!this._shiftX && !this._shiftZ} @click=${() => this.shiftFloor(this._shiftX, this._shiftZ)}>${this.t("floor_shift_apply")}</button>
-                    <button class="fp3d-btn" title=${this.t("floor_turn_hint")} @click=${() => this.turnFloor()}>${this.t("floor_turn")}</button>
+                    <input type="number" step="any" style="width:72px" .value=${String(this._turnDeg)} aria-label=${this.t("rotation")} title=${this.t("rotation")} @change=${(e: Event) => (this._turnDeg = Number((e.target as HTMLInputElement).value) || 0)} />
+                    <button class="fp3d-btn" ?disabled=${!this._turnDeg} title=${this.t("floor_turn_hint")} @click=${() => this.turnFloor(-this._turnDeg)}>↺</button>
+                    <button class="fp3d-btn" ?disabled=${!this._turnDeg} title=${this.t("floor_turn_hint")} @click=${() => this.turnFloor(this._turnDeg)}>↻ ${this.t("floor_turn")}</button>
                     <button class="fp3d-btn" title=${this.t("floor_start_view_hint")} @click=${() => this.rememberFloorView()}>${this.t("floor_start_view")}</button>
                     ${floor.start_view ? html`<button class="fp3d-btn" title=${this.t("floor_start_view_reset")} @click=${() => this.updateFloor({ start_view: null })}>↺</button>` : nothing}
                     <label class="fp3d-check fp3d-wide" title=${this.t("floor_shift_all_hint")}
@@ -11730,6 +11649,7 @@ export class Fp3dEditor extends LitElement {
     const d: DirectorSettings = this._doc.settings.director ?? {};
     const set = (patch: Partial<DirectorSettings>) => this.change((doc) => (doc.settings.director = { ...(doc.settings.director ?? {}), ...patch }));
     const pro = hasFeature("camera_cockpit");
+    if (!pro) return nothing;
     const here = directorOnHere();
     const placed = [...new Set(this._doc.floors.flatMap((f) => f.placements.map((p) => p.entity_id)))];
     const bells = hass ? doorbellEntities(hass) : [];
@@ -11988,17 +11908,8 @@ export class Fp3dEditor extends LitElement {
    */
   private renderHouseholdForm(f: Furniture) {
     const admin = this.isAdmin;
-    const lang = this.hass?.language;
     const pro = hasFeature("household");
-    const teaser = !pro && released("household")
-      ? html`<section class="fp3d-teaser fp3d-wide">
-          <div class="fp3d-teaser-head">
-            <b>🏠 ${this.t("pro_name_household")}</b>
-            <a class="fp3d-btn fp3d-primary" href=${isBeta("household") ? supporterUrl(lang) : shopUrl(lang)} target="_blank" rel="noopener">${this.t(isBeta("household") ? "beta_become" : "pro_unlock")}</a>
-          </div>
-          <p class="fp3d-sub">${this.t(f.type === "waste_bin" ? "household_teaser_bin" : "household_teaser_mail")}</p>
-        </section>`
-      : nothing;
+    const teaser = nothing;
     const select = <T extends string>(label: string, value: T, options: readonly T[], key: (o: T) => I18nKey, onChange: (v: T) => void) =>
       html`<label class="fp3d-field fp3d-wide"
         >${label}
@@ -12082,17 +11993,9 @@ export class Fp3dEditor extends LitElement {
     const fridge = f.type === "fridge" || f.type === "fridge_smart";
     const electric = isElectric(f.type);
     if (!plant && !electric) return nothing;
-    if (!hasFeature("household")) {
-      if (!released("household") || !(plant || appliance || fridge)) return nothing;
-      const lang = this.hass?.language;
-      return html`<section class="fp3d-teaser">
-        <div class="fp3d-teaser-head">
-          <b>🏠 ${this.t("pro_name_household")}</b>
-          <a class="fp3d-btn fp3d-primary" href=${isBeta("household") ? supporterUrl(lang) : shopUrl(lang)} target="_blank" rel="noopener">${this.t(isBeta("household") ? "beta_become" : "pro_unlock")}</a>
-        </div>
-        <p class="fp3d-sub">${this.t(plant ? "hh_teaser_plant" : fridge ? "hh_teaser_fridge" : "hh_teaser_appliance")}</p>
-      </section>`;
-    }
+    if (!hasFeature("household")) return nothing;
+    void appliance;
+    void fridge;
     const sensors = this.entityOptions((id) => id.startsWith("sensor."));
     const doors = this.entityOptions((id) => id.startsWith("binary_sensor."));
     const services = this.entityOptions((id) => ["sensor.", "binary_sensor.", "input_boolean.", "input_datetime.", "input_number."].some((d) => id.startsWith(d)));
@@ -12532,13 +12435,7 @@ export class Fp3dEditor extends LitElement {
 
   /** Auto Pro: the car's entities – one entity of the car's device is enough, the roles are found beside it. */
   private renderCarForm(f: Furniture) {
-    const lang = this.hass?.language;
-    if (!hasFeature("auto_pro"))
-      return html`<section class="fp3d-teaser">
-        <div class="fp3d-teaser-head"><b>🚗 ${this.t("pro_name_auto_pro")}</b><a class="fp3d-btn fp3d-primary" href=${shopUrl(lang)} target="_blank" rel="noopener">${this.t("pro_unlock")}</a></div>
-        <p class="fp3d-sub">${this.t("auto_pro_teaser")}</p>
-      </section>`;
-    if (!this.hass) return nothing;
+    if (!hasFeature("auto_pro") || !this.hass) return nothing;
     const hass = this.hass;
     const car = f.car ?? {};
     const auto = carEntities(hass, { entity: f.entity, car: { device: car.device } });
@@ -12580,12 +12477,7 @@ export class Fp3dEditor extends LitElement {
   private renderPictureRules(f: Furniture) {
     const admin = this.isAdmin;
     const rules = f.pictures ?? [];
-    if (!hasFeature("screens")) {
-      return html`<div class="fp3d-wide">
-        <div class="fp3d-sub">${this.t("screen_pictures")}</div>
-        <p class="fp3d-sub">🔒 ${this.t("pro_feature_screens")} – ${this.t("pro_locked")} <a href=${shopUrl(this.hass?.language)} target="_blank" rel="noopener">${this.t("pro_shop")}</a> · <a href=${manualUrl(this.hass?.language, "screens")} target="_blank" rel="noopener">${this.t("manual_more")}</a></p>
-      </div>`;
-    }
+    if (!hasFeature("screens")) return nothing;
     const set = (next: ScreenPicture[]) => this.updateFurniture({ pictures: next });
     const entities = this.entityOptions(() => true);
     const scalar = (v: unknown) => ["string", "number", "boolean"].includes(typeof v);
@@ -12791,12 +12683,7 @@ export class Fp3dEditor extends LitElement {
           else this._preview = null;
         }}
       ></fp3d-library>
-    </section>
-    <div class="fp3d-ext-teaser">
-      <b>${this.t("ext_teaser_title")}</b>
-      <span class="fp3d-sub">${this.t("ext_teaser_text")}</span>
-      <button class="fp3d-btn fp3d-primary" @click=${() => this.dispatchEvent(new CustomEvent("open-extensions", { bubbles: true, composed: true }))}>${this.t("ext_open")}</button>
-    </div>`;
+    </section>`;
   }
 
   /** Picture of an item, drawn by the 3D bundle and shown left of its button. */
@@ -13568,6 +13455,14 @@ export class Fp3dEditor extends LitElement {
           </select></label
         >
         ${this.num(this.t("north"), s.north, (v) => set({ north: ((Math.round(v) % 360) + 360) % 360 }), 1)}
+        ${this.isAdmin
+          ? html`<div class="fp3d-field fp3d-wide fp3d-shift" title=${this.t("floor_turn_hint")}>
+              <span>${this.t("rotation")}</span>
+              <input type="number" step="any" style="width:76px" .value=${String(this._turnDeg)} aria-label=${this.t("rotation")} @change=${(e: Event) => (this._turnDeg = Number((e.target as HTMLInputElement).value) || 0)} />
+              <button class="fp3d-btn" ?disabled=${!this._turnDeg} @click=${() => this.turnFloor(-this._turnDeg, true)}>↺</button>
+              <button class="fp3d-btn" ?disabled=${!this._turnDeg} @click=${() => this.turnFloor(this._turnDeg, true)}>↻ ${this.t("floor_turn")}</button>
+            </div>`
+          : nothing}
         <label class="fp3d-field fp3d-wide" title=${this.t("editor_floor_hint")}
           >${this.t("editor_floor")}
           <select @change=${(e: Event) => set({ editor_floor: (e.target as HTMLSelectElement).value || null })}>
