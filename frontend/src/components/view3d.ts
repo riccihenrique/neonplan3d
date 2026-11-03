@@ -2748,7 +2748,7 @@ export class Fp3dView3d extends LitElement {
         if (glow) screens.set(f.id, { color: glow.color, level: glow.level });
         // Haushalt Pro: a bin glows the evening before its pickup, a mailbox while post lies in it, a plant while it
         // is thirsty
-        const plant = (f.type === "plant" || isPackPlant(f.type)) && !!f.moisture && f.moisture !== "none";
+        const plant = (f.type === "plant" || f.type.startsWith("plant_") || isPackPlant(f.type)) && !!f.moisture && f.moisture !== "none";
         if (f.type === "waste_bin" || f.type === "mailbox" || plant) {
           const hh = household ? this.householdState(hass, floor, f) : null;
           if (hh?.screen) screens.set(f.id, hh.screen);
@@ -4518,7 +4518,7 @@ export class Fp3dView3d extends LitElement {
         const names = [f.name, ...(f.aliases ?? []), kindName, entity ? entityName(hass, entity) : null, ...(synonyms[f.type] ?? [])].filter((n): n is string => !!n);
         const name = f.name || (entity ? entityName(hass, entity) : kindName);
         devices.push({ id, entity, name, names, room: zone?.name ?? "", camera: !!entity && kindOf(entity) === "camera" });
-        const plant = (f.type === "plant" || isPackPlant(f.type)) && !!f.moisture && f.moisture !== "none";
+        const plant = (f.type === "plant" || f.type.startsWith("plant_") || isPackPlant(f.type)) && !!f.moisture && f.moisture !== "none";
         // the time left only while the appliance runs (not a leftover on its display sensor)
         const idle = applianceIdle(link?.entity ? hass.states[link.entity] : undefined, link?.power ? readPower(hass.states[link.power]) : null, typeof f.run_w === "number" && f.run_w > 0 ? f.run_w : 10);
         const remaining = hasFeature("household") && typeof f.remaining === "string" && f.remaining !== "none" && !idle ? remainingMinutes(hass.states[f.remaining]) : null;

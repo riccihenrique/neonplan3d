@@ -141,3 +141,29 @@ test("sizes read as centimetres, big things as metres", () => {
   assert.equal(sizeText([12, 3.5, 2], "de"), "12 × 3,5 m");
   assert.equal(sizeText([12, 3.5, 2], "en"), "12 × 3.5 m");
 });
+
+test("plant_moreia is indexed under plants and outdoor/garden", () => {
+  const entries = buildIndex({
+    packs: [],
+    basics: basicTypes(),
+    language: "pt",
+    basicName: (t) => (t === "plant_moreia" ? "Moreia" : t),
+    basicNameEn: (t) => (t === "plant_moreia" ? "Moreia (Dietes)" : t),
+    kindName: (k) => k,
+    size: () => [0.65, 0.65, 0.85],
+  });
+  const moreia = entries.find((e) => e.type === "plant_moreia");
+  assert.ok(moreia, "plant_moreia is in basicTypes");
+  assert.equal(moreia.kind, "plant");
+  assert.equal(moreia.outdoor, true);
+  assert.deepEqual(moreia.rooms, ["garden"]);
+  const none = { query: "", room: null, electric: false, light: false, outdoor: false };
+  assert.ok(filterEntries(entries, { ...none, query: "moreia" }).some((e) => e.type === "plant_moreia"));
+  assert.ok(filterEntries(entries, { ...none, query: "dietes" }).some((e) => e.type === "plant_moreia"));
+  assert.ok(filterEntries(entries, { ...none, outdoor: true }).some((e) => e.type === "plant_moreia"));
+  assert.ok(filterEntries(entries, { ...none, outdoor: true }).some((e) => e.type === "plant_podocarpo"));
+  assert.ok(filterEntries(entries, { ...none, query: "jiboia" }).some((e) => e.type === "plant_jiboia"));
+  assert.ok(filterEntries(entries, { ...none, query: "orquidea" }).some((e) => e.type === "plant_orquidea"));
+  assert.ok(filterEntries(entries, { ...none, query: "churrasqueira" }).some((e) => e.type === "bbq_indoor"));
+  assert.ok(filterEntries(entries, { ...none, query: "gourmet" }).some((e) => e.type === "bbq_indoor"));
+});

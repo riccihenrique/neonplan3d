@@ -307,6 +307,9 @@ export function mountBase(floor: Floor, f: Pick<Furniture, "type" | "x" | "z" | 
   if (f.type === "lamp_wall") return WALL_LAMP_Y;
   if (LIFT_SPOTS.has(f.type)) return Math.max(0, floor.height - spotDepth(f.type, f.h));
   if (f.type === "led_strip") return Math.max(0, floor.height - 0.04 - Math.max(0.02, f.h));
+  if ((f.type === "plant_jiboia" && f.variant !== "totem") || f.type === "plant_orquidea") {
+    return groundUnder(floor, f) + surfaceHeight(floor, f.x, f.z, f.h);
+  }
   switch (item?.mount) {
     case "surface":
       return groundUnder(floor, f) + surfaceHeight(floor, f.x, f.z, f.h);

@@ -292,3 +292,95 @@ test("a cover fills a small smart display, not just a sliver; a TV keeps its 4 c
   const tv = screenPictureSize(1.21, 0.68, 16 / 9);
   assert.ok(Math.abs(tv.h - 0.64) < 1e-9);
 });
+
+test("plant_moreia builds finite arching tussock geometry and populates multiple clumps when stretched", async () => {
+  const { roundFootprint } = await import("./furniture.ts");
+  assert.equal(hasFixedColors("plant_moreia"), true);
+  assert.equal(roundFootprint({ type: "plant_moreia", w: 0.65, d: 0.65 }), true);
+  assert.equal(roundFootprint({ type: "plant_moreia", w: 2.4, d: 0.65 }), false);
+
+  const singleBuf = new GeoBuffer();
+  const singleLines = new LineBuffer();
+  const singleShadow = new GeoBuffer();
+  const single: Furniture = { id: "m1", type: "plant_moreia", x: 0, z: 0, rotation: 0, w: 0.65, d: 0.65, h: 0.85, variant: null, entity: null, power: null };
+  pushFurniture(singleBuf, singleLines, singleShadow, single);
+  assert.ok(singleBuf.p.length > 0 && singleBuf.p.every(Number.isFinite));
+  assert.ok(singleLines.p.length > 0 && singleLines.p.every(Number.isFinite));
+  assert.ok(singleShadow.p.length / 9 > 40, "single clump casts round shadow");
+
+  setLightLook(true);
+  const rowBuf = new GeoBuffer();
+  const rowLines = new LineBuffer();
+  const rowShadow = new GeoBuffer();
+  const row: Furniture = { ...single, id: "m2", w: 2.4, d: 0.65 };
+  pushFurniture(rowBuf, rowLines, rowShadow, row);
+  setLightLook(false);
+  assert.ok(rowBuf.p.length > singleBuf.p.length * 2.5, "stretched border row populates multiple clumps");
+  assert.ok(rowBuf.c.every(Number.isFinite));
+});
+
+test("plant_podocarpo, plant_jiboia and plant_orquidea build finite geometry across variants and surface mounting", async () => {
+  const { roundFootprint } = await import("./furniture.ts");
+  const { mountBase } = await import("../packs.ts");
+  const { newFloor } = await import("../model.ts");
+
+  // Podocarpo: single shrub vs stretched hedge row
+  assert.equal(roundFootprint({ type: "plant_podocarpo", w: 0.7, d: 0.7 }), true);
+  assert.equal(roundFootprint({ type: "plant_podocarpo", w: 2.8, d: 0.7 }), false);
+  const podSingle = new GeoBuffer();
+  const podRow = new GeoBuffer();
+  pushFurniture(podSingle, new LineBuffer(), new GeoBuffer(), { id: "p1", type: "plant_podocarpo", x: 0, z: 0, rotation: 0, w: 0.7, d: 0.7, h: 2.0, variant: null, entity: null, power: null });
+  pushFurniture(podRow, new LineBuffer(), new GeoBuffer(), { id: "p2", type: "plant_podocarpo", x: 0, z: 0, rotation: 0, w: 2.8, d: 0.7, h: 2.0, variant: null, entity: null, power: null });
+  assert.ok(podSingle.p.length > 0 && podSingle.p.every(Number.isFinite));
+  assert.ok(podRow.p.length > podSingle.p.length * 2.5, "stretched podocarpo forms a multi-shrub hedge row");
+
+  // Jiboia: table pot stays >= 0, hanging cascades below 0, totem climbs upright
+  const minY = (buf: GeoBuffer) => {
+    let m = Infinity;
+    for (let i = 1; i < buf.p.length; i += 3) if (buf.p[i] < m) m = buf.p[i];
+    return m;
+  };
+  const jibPot = new GeoBuffer();
+  const jibHang = new GeoBuffer();
+  const jibTotem = new GeoBuffer();
+  pushFurniture(jibPot, new LineBuffer(), new GeoBuffer(), { id: "j1", type: "plant_jiboia", x: 0, z: 0, rotation: 0, w: 0.38, d: 0.38, h: 0.42, variant: null, entity: null, power: null });
+  pushFurniture(jibHang, new LineBuffer(), new GeoBuffer(), { id: "j2", type: "plant_jiboia", x: 0, z: 0, rotation: 0, w: 0.38, d: 0.38, h: 0.42, variant: "hanging", entity: null, power: null });
+  pushFurniture(jibTotem, new LineBuffer(), new GeoBuffer(), { id: "j3", type: "plant_jiboia", x: 0, z: 0, rotation: 0, w: 0.38, d: 0.38, h: 1.1, variant: "totem", entity: null, power: null });
+  assert.ok(minY(jibPot) >= -1e-6, "potted jiboia does not poke below tabletop");
+  assert.ok(minY(jibHang) < -0.25, "hanging jiboia cascades below pot base");
+  assert.ok(jibTotem.p.length > 0 && jibTotem.p.every(Number.isFinite));
+
+  // Orquidea: all four colour variants build finite geometry in both neon and light looks
+  for (const variant of [null, "pink", "yellow", "lilac"]) {
+    setLightLook(variant === "pink");
+    const orqBuf = new GeoBuffer();
+    pushFurniture(orqBuf, new LineBuffer(), new GeoBuffer(), { id: `o-${variant}`, type: "plant_orquidea", x: 0, z: 0, rotation: 0, w: 0.28, d: 0.28, h: 0.56, variant, entity: null, power: null });
+    setLightLook(false);
+    assert.ok(orqBuf.p.length > 0 && orqBuf.p.every(Number.isFinite));
+    assert.ok(orqBuf.c.every(Number.isFinite));
+  }
+
+  // Automatic tabletop mounting for potted jiboia and orquidea (totem stays on floor)
+  const floor = newFloor("f1", "Térreo", 0);
+  floor.rooms.push({ id: "r1", name: "Sala", points: [[-2, -2], [2, -2], [2, 2], [-2, 2]], floor_material: "wood", area_id: null });
+  floor.furniture.push({ id: "tbl", type: "table", x: 0, z: 0, rotation: 0, w: 1.6, d: 0.9, h: 0.75, variant: null, entity: null, power: null });
+  assert.equal(mountBase(floor, { type: "plant_orquidea", x: 0, z: 0, h: 0.56, variant: null }), 0.75);
+  assert.equal(mountBase(floor, { type: "plant_jiboia", x: 0, z: 0, h: 0.42, variant: null }), 0.75);
+  assert.equal(mountBase(floor, { type: "plant_jiboia", x: 0, z: 0, h: 1.1, variant: "totem" }), 0);
+
+  // Indoor gourmet BBQ ("bbq_indoor"): masonry, steel/glass hood and brick variants + firebox screenRect
+  const { screenRect } = await import("./furniture.ts");
+  assert.equal(hasFixedColors("bbq_indoor"), true);
+  for (const variant of [null, "hood", "brick"]) {
+    setLightLook(variant === "brick");
+    const bbqBuf = new GeoBuffer();
+    const bbqLines = new LineBuffer();
+    const bbq: Furniture = { id: `bbq-${variant}`, type: "bbq_indoor", x: 0, z: 0, rotation: 0, w: 0.95, d: 0.65, h: 2.35, variant, entity: null, power: null };
+    pushFurniture(bbqBuf, bbqLines, new GeoBuffer(), bbq);
+    setLightLook(false);
+    assert.ok(bbqBuf.p.length > 0 && bbqBuf.p.every(Number.isFinite));
+    assert.ok(bbqLines.p.length > 0 && bbqLines.p.every(Number.isFinite));
+    const sr = screenRect(bbq, floor);
+    assert.ok(sr && sr.x1 > sr.x0 && sr.y1 > sr.y0);
+  }
+});

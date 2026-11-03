@@ -224,8 +224,8 @@ type SettingsTopic = "house" | "weather" | "director" | "voice" | "locate" | "fa
 const WALL_CATS: Record<string, string[]> = {
   base: ["kitchen", "sink", "stove", "dishwasher", "sideboard", "dresser", "tv_board", "nightstand", "washbasin", "washer", "dryer", "worktop", "desk"],
   hang: ["kitchen_wall", "tv_wall", "shelf", "lamp_wall", "radiator", "ac_unit", "led_strip"],
-  tall: ["kitchen_tall", "fridge", "wardrobe", "tall_cabinet", "shelf", "coat_rack"],
-  living: ["sofa", "armchair", "bed", "bunk_bed", "bench", "corner_bench", "plant"],
+  tall: ["kitchen_tall", "bbq_indoor", "fridge", "wardrobe", "tall_cabinet", "shelf", "coat_rack"],
+  living: ["sofa", "armchair", "bed", "bunk_bed", "bench", "corner_bench", "plant", "plant_jiboia", "plant_orquidea"],
   light: ["lamp_wall", "lamp_floor", "led_strip", "lamp_table"],
   switches: ["wall_switch", "wall_socket", "wifi_ap", "water_heater"],
 };
@@ -10003,7 +10003,7 @@ export class Fp3dEditor extends LitElement {
       return svg`<g data-furniture=${f.id} class=${`fp3d-furn${sel || member ? " fp3d-furn-sel" : ""}${lit ? " fp3d-furn-lit" : ""}${(ENERGY_DEVICES as readonly string[]).includes(f.type) ? " fp3d-energy-item" : ""}`}>
         <g transform="translate(${cx} ${cy}) rotate(${f.rotation}) scale(${f.mirror ? -k : k} ${k})">
           <rect class="fp3d-furn-body" x=${-f.w / 2} y=${-f.d / 2} width=${f.w} height=${f.d} />
-          <g class="fp3d-furn-sym">${furnitureSymbol(f.type, f.w, f.d)}</g>
+          <g class="fp3d-furn-sym">${furnitureSymbol(f.type, f.w, f.d, f.variant)}</g>
           <line class="fp3d-furn-front" x1=${-f.w / 2} y1=${f.d / 2} x2=${f.w / 2} y2=${f.d / 2} />
         </g>
         ${big ? svg`<text x=${cx} y=${cy + 4}>${furnitureName(this.hass, f.type)}</text>` : nothing}
@@ -11299,6 +11299,49 @@ export class Fp3dEditor extends LitElement {
             >
           </div>`
         : nothing}
+      ${f.type === "plant_jiboia"
+        ? html`<div class="fp3d-form">
+            <label class="fp3d-field fp3d-wide"
+              >${this.t("pendant_shape")}
+              <select
+                ?disabled=${!admin}
+                @change=${(e: Event) => {
+                  const v = (e.target as HTMLSelectElement).value || null;
+                  const nextH = v === "totem" && Math.abs(f.h - 0.42) < 0.03 ? 1.1 : v !== "totem" && Math.abs(f.h - 1.1) < 0.03 ? 0.42 : f.h;
+                  this.updateFurniture({ variant: v, h: nextH });
+                }}
+              >
+                ${(["", "hanging", "totem"] as const).map(
+                  (v) => html`<option value=${v} ?selected=${(f.variant ?? "") === v}>${this.t(`jiboia_${v || "pot"}` as I18nKey)}</option>`,
+                )}
+              </select></label
+            >
+          </div>`
+        : nothing}
+      ${f.type === "plant_orquidea"
+        ? html`<div class="fp3d-form">
+            <label class="fp3d-field fp3d-wide"
+              >${this.t("orchid_color")}
+              <select ?disabled=${!admin} @change=${(e: Event) => this.updateFurniture({ variant: (e.target as HTMLSelectElement).value || null })}>
+                ${(["", "pink", "yellow", "lilac"] as const).map(
+                  (v) => html`<option value=${v} ?selected=${(f.variant ?? "") === v}>${this.t(`orchid_${v || "white"}` as I18nKey)}</option>`,
+                )}
+              </select></label
+            >
+          </div>`
+        : nothing}
+      ${f.type === "bbq_indoor"
+        ? html`<div class="fp3d-form">
+            <label class="fp3d-field fp3d-wide"
+              >${this.t("pendant_shape")}
+              <select ?disabled=${!admin} @change=${(e: Event) => this.updateFurniture({ variant: (e.target as HTMLSelectElement).value || null })}>
+                ${(["", "hood", "brick"] as const).map(
+                  (v) => html`<option value=${v} ?selected=${(f.variant ?? "") === v}>${this.t(`bbq_${v || "masonry"}` as I18nKey)}</option>`,
+                )}
+              </select></label
+            >
+          </div>`
+        : nothing}
       ${isElectric(f.type) ? this.renderFurnitureLinks(f) : !NO_STATE_TYPES.has(f.type) ? html`<div class="fp3d-form fp3d-links">${this.renderStateLinks(f)}</div>` : nothing} ${GANG_TYPES.has(f.type) ? this.renderGangsForm(f) : nothing} ${TECH_TYPES.has(f.type) ? this.renderTechForm(f) : nothing} ${f.type === "parking" ? this.renderParkingForm(f) : nothing} ${f.type === "waste_bin" || f.type === "mailbox" ? this.renderHouseholdForm(f) : this.renderHouseholdExtras(f)}
       ${this.renderModuleFurnitureFields(f)}
       ${f.type.startsWith("pack:mastershort.vehicles:") && this.isAdmin
@@ -11988,7 +12031,7 @@ export class Fp3dEditor extends LitElement {
    * consumable or service for every electric item. A teaser on plants, appliances and fridges while it is locked.
    */
   private renderHouseholdExtras(f: Furniture) {
-    const plant = f.type === "plant" || isPackPlant(f.type);
+    const plant = f.type === "plant" || f.type.startsWith("plant_") || isPackPlant(f.type);
     const appliance = f.type === "washer" || f.type === "dryer" || f.type === "dishwasher";
     const fridge = f.type === "fridge" || f.type === "fridge_smart";
     const electric = isElectric(f.type);

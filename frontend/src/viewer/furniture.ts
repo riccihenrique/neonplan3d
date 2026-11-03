@@ -867,6 +867,146 @@ function stove(b: Builder, w: number, d: number, h: number): void {
   }
 }
 
+/**
+ * Brazilian indoor gourmet BBQ grill ("Churrasqueira interna"): hollow firebox with glowing charcoal embers, stainless
+ * grill grate and skewers, offered as a full-height clad masonry shaft (""), countertop with steel & glass hood ("hood"),
+ * or traditional exposed terracotta brick with firewood niche and tapered chimney ("brick").
+ */
+function bbqIndoor(b: Builder, w: number, d: number, h: number, variant: string | null): void {
+  const counterY = Math.min(0.92, h * 0.4);
+  const mouthTop = Math.max(counterY + 0.12, Math.min(counterY + 0.62, h * 0.68));
+  const wallT = Math.max(0.06, Math.min(0.13, w * 0.13));
+  const backT = Math.max(0.05, Math.min(0.1, d * 0.15));
+  const ix0 = -w / 2 + wallT;
+  const ix1 = w / 2 - wallT;
+  const iz0 = -d / 2 + backT;
+  const iz1 = d / 2 - 0.03;
+  const emberEdge = shade(0xff7a1f, 0.45);
+  const steelLine = shade(0x8fb4ff, 0.42);
+
+  // shared firebox interior: refractory hearth, glowing charcoal embers, stainless grate and skewers
+  b.box(ix0, ix1, Math.max(0.02, counterY - 0.04), counterY, iz0, iz1, 0x261612, 0x331d18);
+  b.pad(ix0 + 0.02, ix1 - 0.02, counterY, counterY + 0.024, iz0 + 0.02, iz1 - 0.04, 0x1c1414, 0x291a16, 0.008);
+  const spanX = Math.max(0.08, ix1 - ix0 - 0.08);
+  const spanZ = Math.max(0.08, iz1 - iz0 - 0.1);
+  for (let e = 0; e < 6; e++) {
+    const ex = ix0 + 0.04 + spanX * ((e + 0.5) / 6);
+    const ez = iz0 + 0.05 + spanZ * (0.25 + 0.45 * ((e * 3) % 3) * 0.5);
+    const ew = Math.max(0.02, spanX * 0.08);
+    const ed = Math.max(0.02, spanZ * 0.16);
+    b.pad(ex - ew, ex + ew, counterY + 0.015, counterY + 0.042, ez - ed, ez + ed, 0xc93b14, 0xff6e1f, 0.008);
+  }
+  b.seg(ix0 + 0.05, counterY + 0.044, (iz0 + iz1) * 0.5, ix1 - 0.05, counterY + 0.044, (iz0 + iz1) * 0.5, emberEdge);
+
+  // stainless-steel grill grate + front handles
+  const grillY = counterY + (mouthTop - counterY) * 0.32;
+  const bars = Math.max(5, Math.round((ix1 - ix0) / 0.055));
+  b.seg(ix0 + 0.01, grillY, iz0 + 0.02, ix1 - 0.01, grillY, iz0 + 0.02, steelLine);
+  b.seg(ix0 + 0.01, grillY, iz1 - 0.02, ix1 - 0.01, grillY, iz1 - 0.02, EDGE_GLOW);
+  for (let i = 0; i <= bars; i++) {
+    const gx = ix0 + 0.015 + ((ix1 - ix0 - 0.03) * i) / bars;
+    b.seg(gx, grillY, iz0 + 0.02, gx, grillY, iz1 - 0.02, steelLine);
+  }
+  for (const hx of [ix0 + spanX * 0.22, ix1 - spanX * 0.22]) {
+    b.box(hx - 0.012, hx + 0.012, grillY - 0.008, grillY + 0.012, iz1 - 0.02, d / 2 + 0.03, 0x4a2f1d, 0x6b462b);
+  }
+
+  // upper skewer support bar + two skewers with wooden handles
+  const skewY = counterY + (mouthTop - counterY) * 0.58;
+  b.seg(ix0 + 0.01, skewY, iz1 - 0.03, ix1 - 0.01, skewY, iz1 - 0.03, steelLine);
+  for (const sx of [-spanX * 0.18, spanX * 0.18]) {
+    b.seg(sx, skewY - 0.01, iz0 + 0.02, sx, skewY + 0.004, d / 2 + 0.01, EDGE_GLOW);
+    b.lyingCyl("z", sx, d / 2 + 0.035, skewY - 0.012, skewY + 0.016, 0.055, 0.024, 0x4a2f1d, 0x6b462b, 8);
+  }
+
+  if (variant === "hood") {
+    const doors = Math.max(1, Math.round(w / 0.5));
+    cabinet(b, w, d - 0.02, Math.max(0.12, counterY - 0.04), doors, Math.max(0.1, counterY - 0.2));
+    // countertop collar around the firebox + stainless braseiro trim
+    b.box(-w / 2, ix0, counterY - 0.04, counterY, -d / 2, d / 2, C.whiteTop, C.whiteTop, EDGE_FURN);
+    b.box(ix1, w / 2, counterY - 0.04, counterY, -d / 2, d / 2, C.whiteTop, C.whiteTop, EDGE_FURN);
+    b.box(ix0, ix1, counterY - 0.04, counterY, -d / 2, iz0, C.whiteTop, C.whiteTop);
+    b.box(ix0, ix1, counterY - 0.04, counterY, iz1, d / 2, C.metal, 0x3b507d, EDGE_GLOW);
+    // rear stainless panel + tempered glass side shields
+    b.box(ix0 - 0.02, ix1 + 0.02, counterY, mouthTop, -d / 2, -d / 2 + backT * 0.65, C.metal, 0x3b507d, EDGE_FAINT);
+    for (const gx of [ix0, ix1]) {
+      b.seg(gx, counterY, -d / 2 + backT * 0.65, gx, counterY, d / 2 - 0.04, EDGE_GLOW);
+      b.seg(gx, mouthTop, -d / 2 + backT * 0.65, gx, mouthTop, d / 2 - 0.04, EDGE_GLOW);
+      b.seg(gx, counterY, d / 2 - 0.04, gx, mouthTop, d / 2 - 0.04, EDGE_GLOW);
+    }
+    // suspended brushed-steel pyramid hood + vertical duct
+    const rimTop = Math.min(h - 0.04, mouthTop + 0.065);
+    const coneTop = Math.min(h - 0.02, rimTop + (h - rimTop) * 0.4);
+    b.box(-w / 2, w / 2, mouthTop, rimTop, -d / 2, d / 2 - 0.01, C.metal, 0x3b507d, EDGE_FURN);
+    if (coneTop - rimTop > 0.01) {
+      b.loft([-w / 2, w / 2, -d / 2, d / 2 - 0.01], [-w * 0.22, w * 0.22, -d / 2 + 0.02, -d / 2 + d * 0.44], rimTop, coneTop, C.metal, 0x3b507d, EDGE_FURN);
+    }
+    if (h - coneTop > 0.01) {
+      b.box(-w * 0.22, w * 0.22, coneTop, h, -d / 2 + 0.02, -d / 2 + d * 0.44, C.metal, 0x3b507d, EDGE_FURN);
+    }
+    return;
+  }
+
+  if (variant === "brick") {
+    const bSide = 0x5e271b;
+    const bTop = 0x803827;
+    const nicheTop = Math.max(0.14, counterY - 0.12);
+    // lower brick piers + open firewood niche with logs
+    b.box(-w / 2, ix0, 0, counterY - 0.04, -d / 2, d / 2 - 0.02, bSide, bTop, EDGE_FURN);
+    b.box(ix1, w / 2, 0, counterY - 0.04, -d / 2, d / 2 - 0.02, bSide, bTop, EDGE_FURN);
+    b.box(ix0, ix1, 0, counterY - 0.04, -d / 2, iz0, bSide, bTop);
+    b.box(ix0, ix1, 0, 0.07, iz0, d / 2 - 0.02, bSide, bTop);
+    b.box(ix0, ix1, nicheTop, counterY - 0.04, iz0, d / 2 - 0.02, bSide, bTop, EDGE_FAINT);
+    for (const [lx, ly] of [
+      [-spanX * 0.22, 0.12],
+      [spanX * 0.02, 0.12],
+      [spanX * 0.24, 0.12],
+      [-spanX * 0.1, 0.2],
+      [spanX * 0.14, 0.2],
+    ]) {
+      if (ly + 0.05 < nicheTop) b.lyingCyl("z", lx, 0, ly - 0.04, ly + 0.04, d * 0.55, 0.075, 0x452b1a, 0x694429, 8);
+    }
+    // dark granite hearth ledge + brick firebox walls
+    b.box(-w / 2 - 0.01, w / 2 + 0.01, counterY - 0.04, counterY, -d / 2, d / 2, 0x1b2234, 0x26314a, EDGE_FURN);
+    b.box(-w / 2, ix0, counterY, mouthTop, -d / 2, d / 2 - 0.02, bSide, bTop, EDGE_FURN);
+    b.box(ix1, w / 2, counterY, mouthTop, -d / 2, d / 2 - 0.02, bSide, bTop, EDGE_FURN);
+    b.box(ix0, ix1, counterY, mouthTop, -d / 2, iz0, 0x3b1912, bSide);
+    // stepped lintel + sloped brick hood + chimney column
+    const lintelTop = Math.min(h - 0.04, mouthTop + 0.09);
+    const hoodTop = Math.min(h - 0.02, lintelTop + (h - lintelTop) * 0.48);
+    b.box(-w / 2, w / 2, mouthTop, lintelTop, -d / 2, d / 2 - 0.01, bSide, bTop, EDGE_FURN);
+    if (hoodTop - lintelTop > 0.01) {
+      b.loft([-w / 2, w / 2, -d / 2, d / 2 - 0.02], [-w * 0.28, w * 0.28, -d / 2, -d / 2 + d * 0.52], lintelTop, hoodTop, bSide, bTop, EDGE_FURN);
+    }
+    if (h - hoodTop > 0.01) {
+      b.box(-w * 0.28, w * 0.28, hoodTop, Math.max(hoodTop + 0.01, h - 0.05), -d / 2, -d / 2 + d * 0.52, bSide, bTop, EDGE_FURN);
+      b.box(-w * 0.31, w * 0.31, Math.max(hoodTop, h - 0.05), h, -d / 2 - 0.01, -d / 2 + d * 0.54, bSide, bTop, EDGE_FAINT);
+    }
+    return;
+  }
+
+  // default (""): modern clad masonry/porcelain full-height shaft with cabinet below and brushed-steel mouth frame
+  const doors = Math.max(1, Math.round(w / 0.5));
+  cabinet(b, w, d - 0.02, Math.max(0.12, counterY - 0.04), doors, Math.max(0.1, counterY - 0.2));
+  b.box(-w / 2, w / 2, counterY - 0.04, counterY, -d / 2, d / 2, C.whiteTop, C.whiteTop, EDGE_FURN);
+  b.box(-w / 2, ix0, counterY, mouthTop, -d / 2, d / 2 - 0.02, C.body, C.bodyTop, EDGE_FURN);
+  b.box(ix1, w / 2, counterY, mouthTop, -d / 2, d / 2 - 0.02, C.body, C.bodyTop, EDGE_FURN);
+  b.box(ix0, ix1, counterY, mouthTop, -d / 2, iz0, 0x261612, 0x331d18);
+  // brushed stainless-steel mouth trim around the firebox opening
+  const zFace = d / 2 - 0.02;
+  b.box(ix0 - 0.025, ix0, counterY, mouthTop + 0.025, zFace - 0.01, zFace + 0.012, C.metal, 0x3b507d);
+  b.box(ix1, ix1 + 0.025, counterY, mouthTop + 0.025, zFace - 0.01, zFace + 0.012, C.metal, 0x3b507d);
+  b.box(ix0 - 0.025, ix1 + 0.025, mouthTop, mouthTop + 0.03, zFace - 0.01, zFace + 0.012, C.metal, 0x3b507d, EDGE_GLOW);
+  // upper clad chimney shaft up to h + damper grille
+  if (h - mouthTop > 0.02) {
+    b.box(-w / 2, w / 2, mouthTop, h, -d / 2, zFace, C.body, C.bodyTop, EDGE_FURN);
+    if (h - mouthTop > 0.35) {
+      const vy = h - 0.18;
+      b.box(-w * 0.18, w * 0.18, vy - 0.05, vy + 0.05, zFace, zFace + 0.008, C.metal, 0x3b507d, EDGE_FAINT);
+    }
+  }
+}
+
 function sink(b: Builder, w: number, d: number, h: number): void {
   cabinet(b, w, d - 0.02, h - 0.04, Math.max(1, Math.round(w / 0.45)), h - 0.2);
   const bw = Math.min(0.5, w - 0.2);
@@ -944,6 +1084,322 @@ function plant(b: Builder, w: number, d: number, h: number): void {
     const lr = r * (0.95 - 0.55 * t);
     const y0 = potH + (h - potH) * (0.18 + 0.2 * i);
     b.cyl(Math.sin(i * 2.1) * 0.03, Math.cos(i * 1.7) * 0.03, lr, y0, y0 + (h - potH) * 0.16, C.plant, C.plantTop, 8, i === layers - 1 ? EDGE_FAINT : null);
+  }
+}
+
+/**
+ * Moreia (Dietes bicolor / iridioides): fountain-like grass/iris tussocks of arching sword-shaped leaves and slender
+ * flower stalks with three-petal white and golden-yellow blooms. Stretching width or depth populates a natural border row.
+ */
+function plantMoreia(b: Builder, w: number, d: number, h: number): void {
+  const edgeLeaf = shade(0x3de0a0, 0.26);
+  const step = Math.max(0.28, Math.min(0.58, Math.min(w, d) * 0.92));
+  const nx = Math.max(1, Math.round(w / step));
+  const nz = Math.max(1, Math.round(d / step));
+  const total = nx * nz;
+  const dense = total <= 4;
+  if (total > 1) {
+    b.pad(-w * 0.46, w * 0.46, 0, Math.min(0.03, h * 0.04), -d * 0.42, d * 0.42, 0x161310, 0x1e1915, 0.012, EDGE_FAINT);
+  }
+  const cw = w / nx;
+  const cd = d / nz;
+  const baseR = Math.max(0.12, Math.min(cw, cd) * 0.48);
+  for (let ix = 0; ix < nx; ix++) {
+    for (let iz = 0; iz < nz; iz++) {
+      const seed = ix * 7 + iz * 13;
+      const cx = -w / 2 + cw * (ix + 0.5) + (nx > 1 ? Math.sin(seed * 2.3) * cw * 0.06 : 0);
+      const cz = -d / 2 + cd * (iz + 0.5) + (nz > 1 ? Math.cos(seed * 1.9) * cd * 0.06 : 0);
+      const yaw = (seed * 37) % 360;
+      const ch = h * (total > 1 ? 0.9 + 0.1 * (0.5 + 0.5 * Math.sin(seed * 1.7)) : 1);
+      const r = baseR * (total > 1 ? 0.94 + 0.1 * (0.5 + 0.5 * Math.cos(seed * 1.3)) : 1);
+      b.cyl(cx, cz, r * 0.2, 0, ch * 0.07, 0x161f18, 0x113628, 7);
+
+      const blade = (deg: number, rMid: number, rTip: number, yMid: number, yTip: number, bw: number, rib: boolean) => {
+        const bb = b.rotated(cx, cz, deg);
+        const z0 = r * 0.04;
+        const tk = Math.max(0.008, r * 0.045);
+        bb.loft([-bw * 0.65, bw * 0.65, z0, z0 + tk], [-bw, bw, rMid - tk * 0.4, rMid + tk * 0.4], ch * 0.03, yMid, 0x113628, 0x1c543e);
+        bb.loft([-bw, bw, rMid - tk * 0.4, rMid + tk * 0.4], [-0.003, 0.003, rTip - 0.004, rTip + 0.004], yMid, yTip, 0x1c543e, 0x23664b);
+        if (rib) {
+          bb.seg(0, ch * 0.05, z0 + tk * 0.5, 0, yMid + 0.004, rMid, edgeLeaf);
+          bb.seg(0, yMid + 0.004, rMid, 0, Math.max(ch * 0.12, yTip - ch * 0.03), rTip + r * 0.03, edgeLeaf);
+        }
+      };
+
+      const n1 = dense ? 4 : 3;
+      for (let i = 0; i < n1; i++) {
+        blade(yaw + (i * 360) / n1 + 12, r * 0.22, r * 0.44, ch * 0.48, ch * 0.84, Math.max(0.012, r * 0.075), true);
+      }
+      const n2 = dense ? 6 : 4;
+      for (let i = 0; i < n2; i++) {
+        blade(yaw + (i * 360) / n2 + 34, r * 0.48, r * 0.86, ch * 0.44, ch * 0.66, Math.max(0.014, r * 0.085), true);
+      }
+      const n3 = dense ? 6 : 5;
+      for (let i = 0; i < n3; i++) {
+        blade(yaw + (i * 360) / n3 + 5, r * 0.56, r * 1.0, ch * 0.28, ch * 0.4, Math.max(0.013, r * 0.08), i % 2 === 0);
+      }
+
+      const stalks = dense ? 3 : 2;
+      const petalLen = Math.min(0.048, Math.max(0.026, r * 0.16));
+      const petalW = petalLen * 0.44;
+      for (let s = 0; s < stalks; s++) {
+        const sa = yaw + 28 + s * (360 / stalks) + (s % 2) * 14;
+        const sr = r * (0.28 + 0.16 * ((s + ix) % 2));
+        const fy = ch * (0.86 + 0.06 * (s % 3));
+        const sb = b.rotated(cx, cz, sa);
+        sb.loft([-0.005, 0.005, r * 0.03, r * 0.03 + 0.01], [-0.004, 0.004, sr - 0.004, sr + 0.004], ch * 0.08, fy, 0x164734, 0x23664b);
+        sb.seg(0, ch * 0.1, r * 0.035, 0, fy, sr, edgeLeaf);
+        for (let k = 0; k < 3; k++) {
+          const fb = sb.rotated(0, sr, k * 120 + 18);
+          fb.loft([-petalW * 0.35, petalW * 0.35, 0.004, 0.012], [-petalW, petalW, petalLen * 0.35, petalLen], fy - 0.004, fy + 0.014, 0x627a9e, 0x9cb4d6);
+        }
+        sb.cyl(0, sr, petalLen * 0.34, fy + 0.002, fy + 0.02, 0xd49b1a, 0xf2c438, 6);
+        if (s === 0) {
+          sb.seg(0, fy * 0.66, sr * 0.68, 0.022, fy * 0.78, sr * 0.82, edgeLeaf);
+          sb.loft([0.016, 0.028, sr * 0.79, sr * 0.85], [0.019, 0.025, sr * 0.8, sr * 0.84], fy * 0.77, fy * 0.83, 0x627a9e, 0x9cb4d6);
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Podocarpo (Podocarpus macrophyllus): upright columnar-conical shrub/tree with a woody trunk, dense dark blue-green
+ * needle whorls and bright lime-emerald new-growth shoots. Stretching width or depth plants a natural hedge row.
+ */
+function plantPodocarpo(b: Builder, w: number, d: number, h: number): void {
+  const edgeShoot = shade(0x4be898, 0.24);
+  const step = Math.max(0.36, Math.min(0.66, Math.min(w, d) * 0.92));
+  const nx = Math.max(1, Math.round(w / step));
+  const nz = Math.max(1, Math.round(d / step));
+  const total = nx * nz;
+  const dense = total <= 4;
+  if (total > 1) {
+    b.pad(-w * 0.47, w * 0.47, 0, Math.min(0.035, h * 0.022), -d * 0.43, d * 0.43, 0x161310, 0x1e1915, 0.012, EDGE_FAINT);
+  }
+  const cw = w / nx;
+  const cd = d / nz;
+  const baseR = Math.max(0.14, Math.min(cw, cd) * 0.48);
+  for (let ix = 0; ix < nx; ix++) {
+    for (let iz = 0; iz < nz; iz++) {
+      const seed = ix * 11 + iz * 17;
+      const cx = -w / 2 + cw * (ix + 0.5) + (nx > 1 ? Math.sin(seed * 2.1) * cw * 0.04 : 0);
+      const cz = -d / 2 + cd * (iz + 0.5) + (nz > 1 ? Math.cos(seed * 1.7) * cd * 0.04 : 0);
+      const yaw = (seed * 43) % 360;
+      const ch = h * (total > 1 ? 0.93 + 0.07 * (0.5 + 0.5 * Math.sin(seed * 1.5)) : 1);
+      const r = baseR * (total > 1 ? 0.96 + 0.08 * (0.5 + 0.5 * Math.cos(seed * 1.9)) : 1);
+
+      // woody trunk visible below the lower skirt and rising inside the column
+      b.cyl(cx, cz, Math.max(0.018, r * 0.13), 0, ch * 0.62, 0x291f18, 0x382b22, 7);
+
+      const tiers = dense ? 7 : 5;
+      const yStart = ch * 0.13;
+      const yEnd = ch * 0.93;
+      const tierSpan = (yEnd - yStart) / tiers;
+      for (let t = 0; t < tiers; t++) {
+        const u = t / Math.max(1, tiers - 1);
+        const env = u < 0.45 ? 0.88 + 0.12 * Math.sin((u / 0.45) * Math.PI * 0.5) : Math.max(0.26, 1 - ((u - 0.45) / 0.55) * 0.74);
+        const tr = r * env;
+        const y0 = yStart + t * tierSpan * 0.94;
+        const y1 = Math.min(ch * 0.96, y0 + tierSpan * 1.18);
+        const ox = Math.sin(seed + t * 2.2) * r * 0.03;
+        const oz = Math.cos(seed + t * 1.8) * r * 0.03;
+        b.cyl(cx + ox, cz + oz, tr * 0.82, y0, y1, 0x0e2f25, 0x164737, 8, t === tiers - 1 ? EDGE_FAINT : null);
+
+        // upward-angled outer needle branchlets with fresh bright-green shoot tips
+        const tufts = dense ? 5 : 4;
+        for (let k = 0; k < tufts; k++) {
+          const deg = yaw + t * 34 + (k * 360) / tufts;
+          const tb = b.rotated(cx + ox, cz + oz, deg);
+          const tw0 = Math.max(0.018, tr * 0.24);
+          const tw1 = Math.max(0.01, tr * 0.13);
+          const ty0 = y0 + (y1 - y0) * 0.15;
+          const ty1 = y1 + tierSpan * 0.16;
+          tb.loft([-tw0, tw0, tr * 0.44, tr * 0.68], [-tw1, tw1, tr * 0.84, tr * 1.03], ty0, ty1, 0x1a5439, 0x368f5c);
+          if ((t + k) % 2 === 0) {
+            tb.seg(0, ty0 + 0.01, tr * 0.56, 0, ty1 + 0.008, tr * 1.02, edgeShoot);
+          }
+        }
+      }
+      // conical leader shoot at the apex
+      const ar = Math.max(0.025, r * 0.2);
+      b.loft([cx - ar, cx + ar, cz - ar, cz + ar], [cx - ar * 0.28, cx + ar * 0.28, cz - ar * 0.28, cz + ar * 0.28], ch * 0.9, ch, 0x1f6141, 0x3ea168);
+      b.seg(cx, ch * 0.9, cz, cx, ch + 0.01, cz, edgeShoot);
+    }
+  }
+}
+
+/**
+ * Jiboia (Epipremnum aureum / golden pothos): ceramic pot with heart-shaped emerald and golden-lime variegated leaves,
+ * either mounding on a table/sideboard (""), cascading in long vines below the pot ("hanging"), or climbing a coir totem ("totem").
+ */
+function plantJiboia(b: Builder, w: number, d: number, h: number, variant: string | null): void {
+  const r = Math.min(w, d) / 2;
+  const edgeVein = shade(0x8be858, 0.25);
+
+  const heartLeaf = (lb: Builder, lx: number, lz: number, deg: number, yBase: number, sz: number, golden: boolean) => {
+    const hb = lb.rotated(lx, lz, deg);
+    const lw = Math.max(0.01, sz * 0.56);
+    const side = golden ? 0x457322 : 0x14452e;
+    const top = golden ? 0x8cc439 : 0x226e49;
+    const dy = Math.max(0.008, sz * 0.22);
+    hb.loft([-lw, lw, -sz * 0.16, sz * 0.36], [-lw * 0.18, lw * 0.18, sz * 0.34, sz * 0.88], yBase, yBase + dy, side, top);
+    hb.seg(0, yBase + dy + 0.002, -sz * 0.08, 0, yBase + dy * 0.65, sz * 0.82, edgeVein);
+  };
+
+  if (variant === "totem") {
+    const potH = Math.min(0.32, h * 0.25);
+    b.loft([-r * 0.46, r * 0.46, -r * 0.46, r * 0.46], [-r * 0.58, r * 0.58, -r * 0.58, r * 0.58], 0, potH, C.pot, 0x263557, EDGE_FURN);
+    b.cyl(0, 0, r * 0.52, Math.max(0, potH - 0.008), potH + 0.005, 0x181310, 0x211a15, 10);
+    const poleTop = h * 0.94;
+    const poleR = Math.max(0.022, r * 0.16);
+    b.cyl(0, 0, poleR, potH, poleTop, 0x3b2a1d, 0x4f3928, 8, EDGE_FAINT);
+    const nLeaves = Math.max(10, Math.min(26, Math.round(Math.max(0.1, h - potH) / 0.042)));
+    for (let i = 0; i < nLeaves; i++) {
+      const u = i / Math.max(1, nLeaves - 1);
+      const deg = (i * 137.5) % 360;
+      const rad = poleR + r * (0.34 - 0.1 * u);
+      const y = potH + (h * 0.96 - potH) * u;
+      const a = deg * DEG;
+      const lx = -Math.sin(a) * rad;
+      const lz = Math.cos(a) * rad;
+      heartLeaf(b, lx, lz, deg, y, Math.max(0.045, r * (0.5 - 0.08 * u)), i % 2 === 0);
+    }
+    return;
+  }
+
+  const potH = h * 0.46;
+  b.loft([-r * 0.45, r * 0.45, -r * 0.45, r * 0.45], [-r * 0.58, r * 0.58, -r * 0.58, r * 0.58], 0, potH, C.pot, 0x263557, EDGE_FURN);
+  b.cyl(0, 0, r * 0.52, Math.max(0, potH - 0.008), potH + 0.005, 0x181310, 0x211a15, 10);
+
+  // lush mounding crown of variegated heart-shaped leaves above the pot
+  const leafSz = Math.max(0.042, r * 0.46);
+  for (let i = 0; i < 8; i++) {
+    const deg = i * 45 + 14;
+    const a = deg * DEG;
+    const rad = r * (0.34 + 0.08 * (i % 2));
+    heartLeaf(b, -Math.sin(a) * rad, Math.cos(a) * rad, deg, potH + (h - potH) * (0.12 + 0.14 * (i % 3)), leafSz, i % 2 === 0);
+  }
+  for (let i = 0; i < 4; i++) {
+    const deg = i * 90 + 38;
+    const a = deg * DEG;
+    heartLeaf(b, -Math.sin(a) * r * 0.14, Math.cos(a) * r * 0.14, deg, potH + (h - potH) * (0.55 + 0.08 * i), leafSz * 0.92, i % 2 === 1);
+  }
+
+  // cascading vines: either draping down the pot sides (safe on tabletops) or hanging below the pot ("hanging")
+  const hanging = variant === "hanging";
+  const vineAngles = hanging ? [-68, -36, -8, 18, 46, 74] : [-130, -52, 6, 58, 142];
+  vineAngles.forEach((deg, idx) => {
+    const vb = b.rotated(0, 0, deg);
+    const yTop = potH + 0.012;
+    const drop = hanging ? -Math.max(0.34, h * (0.85 + 0.18 * (idx % 3))) : Math.max(0.014, potH * (0.08 + 0.16 * (idx % 3)));
+    const steps = hanging ? 6 : 3;
+    let prevY = yTop;
+    let prevZ = r * 0.52;
+    for (let s = 1; s <= steps; s++) {
+      const u = s / steps;
+      const ny = yTop + (drop - yTop) * u;
+      const nz = r * (0.66 + 0.22 * Math.sin(u * Math.PI * 0.85)) + (hanging ? 0.015 * u : 0);
+      const nx = Math.sin(idx * 1.9 + s * 1.4) * r * 0.08;
+      vb.seg(0, prevY, prevZ, nx, ny, nz, edgeVein);
+      heartLeaf(vb, nx, nz, (s % 2 ? 26 : -26) + idx * 3, ny, leafSz * (0.94 - 0.18 * u), (idx + s) % 2 === 0);
+      prevY = ny;
+      prevZ = nz;
+    }
+  });
+}
+
+/**
+ * Orquídea (Phalaenopsis): glazed ceramic cachepot with pine-bark substrate, broad fleshy dark-green basal leaves,
+ * bamboo stake and graceful arching flower spikes carrying butterfly-shaped blooms in white, pink, yellow or lilac.
+ */
+function plantOrquidea(b: Builder, w: number, d: number, h: number, variant: string | null): void {
+  const edgeStem = shade(0x3de0a0, 0.24);
+  const palette: Record<string, [number, number, number, number]> = {
+    "": [0x758bad, 0xbcd0ed, 0xc92e71, 0xf55ea0],
+    pink: [0xb83b7e, 0xed6bb2, 0x9e1952, 0xf5ba36],
+    yellow: [0xc7981c, 0xf5cf42, 0xc92c61, 0xf04d84],
+    lilac: [0x764da8, 0xad82e3, 0x59268c, 0xf2be38],
+  };
+  const [petalSide, petalTop, lipSide, lipTop] = palette[variant ?? ""] ?? palette[""];
+
+  const nx = Math.max(1, Math.round(w / 0.34));
+  const cw = w / nx;
+  const r = Math.max(0.04, Math.min(cw, d) * 0.44);
+  const potH = h * 0.28;
+
+  for (let ip = 0; ip < nx; ip++) {
+    const cx = -w / 2 + cw * (ip + 0.5);
+    const cz = -r * 0.06;
+    const yaw = ip * 24;
+
+    // glazed tapered ceramic cachepot + dark pine-bark chips
+    b.loft([cx - r * 0.5, cx + r * 0.5, cz - r * 0.5, cz + r * 0.5], [cx - r * 0.64, cx + r * 0.64, cz - r * 0.64, cz + r * 0.64], 0, potH, C.white, C.whiteTop, EDGE_FURN);
+    b.cyl(cx, cz, r * 0.56, Math.max(0, potH - 0.008), potH + 0.005, 0x241913, 0x30221a, 10);
+
+    // broad fleshy opposite-ranked basal Phalaenopsis leaves curving over the pot rim
+    for (const [deg, lenK, yK] of [
+      [-86, 1.02, 0.065],
+      [84, 1.0, 0.06],
+      [-58, 0.88, 0.095],
+      [62, 0.9, 0.09],
+      [162, 0.78, 0.05],
+    ] as const) {
+      const lb = b.rotated(cx, cz, yaw + deg);
+      const lw = Math.max(0.014, r * 0.26);
+      const yMid = potH + h * yK;
+      lb.loft([-lw * 0.55, lw * 0.55, r * 0.04, r * 0.22], [-lw, lw, r * 0.42, r * 0.62], potH, yMid + 0.012, 0x113d29, 0x1d5e40);
+      lb.loft([-lw, lw, r * 0.48, r * 0.64], [-lw * 0.42, lw * 0.42, r * (lenK - 0.12), r * lenK], yMid - 0.008, yMid + 0.008, 0x154a32, 0x236e4b);
+    }
+
+    // slender bamboo support stake
+    b.cyl(cx - r * 0.04, cz - r * 0.05, Math.max(0.0035, r * 0.028), potH, h * 0.72, 0x2e241b, 0x3d3024, 5);
+
+    const bloom = (fb: Builder, fx: number, fy: number, fz: number, turnDeg: number, fs: number) => {
+      const ob = fb.rotated(fx, fz, turnDeg);
+      // two wide rounded lateral wing petals
+      ob.loft([-fs * 1.05, -fs * 0.1, -0.004, 0.005], [-fs * 0.92, -fs * 0.14, -0.002, 0.007], fy - fs * 0.42, fy + fs * 0.42, petalSide, petalTop);
+      ob.loft([fs * 0.1, fs * 1.05, -0.004, 0.005], [fs * 0.14, fs * 0.92, -0.002, 0.007], fy - fs * 0.42, fy + fs * 0.42, petalSide, petalTop);
+      // dorsal upper sepal & lower lateral sepals
+      ob.loft([-fs * 0.36, fs * 0.36, -0.006, 0.003], [-fs * 0.28, fs * 0.28, -0.005, 0.004], fy + fs * 0.08, fy + fs * 0.78, petalSide, petalTop);
+      ob.loft([-fs * 0.44, fs * 0.44, -0.006, 0.003], [-fs * 0.52, fs * 0.52, -0.005, 0.004], fy - fs * 0.72, fy - fs * 0.05, petalSide, petalTop);
+      // projecting contrasting central labellum (lip)
+      ob.loft([-fs * 0.22, fs * 0.22, 0.003, 0.015], [-fs * 0.14, fs * 0.14, 0.005, 0.018], fy - fs * 0.34, fy + fs * 0.08, lipSide, lipTop);
+    };
+
+    const spike = (deg: number, topH: number, reach: number, count: number) => {
+      const sb = b.rotated(cx, cz, yaw + deg);
+      const yKnee = potH + (topH - potH) * 0.68;
+      const yApex = topH;
+      sb.loft([-0.004, 0.004, -r * 0.03, -r * 0.03 + 0.008], [-0.0035, 0.0035, reach * 0.18, reach * 0.18 + 0.007], potH, yKnee, 0x164734, 0x23664b);
+      sb.loft([-0.0035, 0.0035, reach * 0.18, reach * 0.18 + 0.007], [-0.003, 0.003, reach * 0.56, reach * 0.56 + 0.006], yKnee, yApex, 0x1a5439, 0x297553);
+      sb.seg(0, potH + 0.02, -r * 0.025, 0, yKnee, reach * 0.18, edgeStem);
+      sb.seg(0, yKnee, reach * 0.18, 0, yApex, reach * 0.56, edgeStem);
+
+      const fs = Math.min(0.044, Math.max(0.02, r * 0.34));
+      let py = yApex;
+      let pz = reach * 0.56;
+      for (let k = 0; k < count; k++) {
+        const u = (k + 1) / (count + 1);
+        const ny = yApex - (topH - potH) * 0.28 * u;
+        const nz = reach * (0.56 + 0.44 * u);
+        const side = k % 2 === 0 ? -1 : 1;
+        const bx = side * fs * 0.48;
+        sb.seg(0, py, pz, 0, ny, nz, edgeStem);
+        sb.seg(0, ny, nz, bx, ny, nz + 0.008, edgeStem);
+        bloom(sb, bx, ny, nz + 0.01, side * 22, fs * (1 - 0.08 * u));
+        py = ny;
+        pz = nz;
+      }
+      // small unopened terminal orchid buds at the drooping tip
+      const tipY = py - (topH - potH) * 0.06;
+      const tipZ = pz + reach * 0.1;
+      sb.seg(0, py, pz, 0, tipY, tipZ, edgeStem);
+      sb.cyl(0, tipZ, fs * 0.22, tipY - fs * 0.18, tipY + fs * 0.18, petalSide, petalTop, 6);
+    };
+
+    spike(6, h * 0.96, r * 0.88, 4);
+    if (h >= 0.38) spike(-34, h * 0.78, r * 0.74, 3);
   }
 }
 
@@ -1495,12 +1951,21 @@ function builtInScreen(f: Furniture, w: number, d: number, h: number, floor?: Fl
     return { x0: -r, x1: r, y0: cy - r, y1: cy + r, z: d / 2 - 0.004 };
   }
   if (f.type === "dishwasher") return { x0: -w / 2 + 0.06, x1: w / 2 - 0.06, y0: h - 0.16, y1: h - 0.08, z: d / 2 - 0.004 };
+  if (f.type === "bbq_indoor") {
+    const counterY = Math.min(0.92, h * 0.4);
+    const mouthTop = Math.max(counterY + 0.12, Math.min(counterY + 0.62, h * 0.68));
+    const wallT = Math.max(0.06, Math.min(0.13, w * 0.13));
+    return { x0: -w / 2 + wallT + 0.02, x1: w / 2 - wallT - 0.02, y0: counterY + 0.05, y1: mouthTop - 0.04, z: -d / 2 + Math.max(0.05, Math.min(0.1, d * 0.15)) + 0.004 };
+  }
   return null;
 }
 
 /** Round things cast a round shadow: a round table, a plant, a pack item whose largest part is an upright cylinder (#719). */
-export function roundFootprint(f: Pick<Furniture, "type">): boolean {
-  if (f.type === "table_round" || f.type === "plant") return true;
+export function roundFootprint(f: Pick<Furniture, "type"> & { w?: number; d?: number }): boolean {
+  if (f.type === "table_round" || f.type === "plant" || f.type === "plant_jiboia") return true;
+  if (f.type === "plant_moreia" || f.type === "plant_podocarpo" || f.type === "plant_orquidea") {
+    return f.w === undefined || f.d === undefined || Math.max(f.w, f.d) <= Math.min(f.w, f.d) * 1.35;
+  }
   const item = packItem(f.type);
   if (!item?.parts.length) return false;
   const big = item.parts.reduce((m, p) => (p.w * p.d > m.w * m.d ? p : m), item.parts[0]);
@@ -1693,6 +2158,12 @@ function buildFurniture(buf: GeoBuffer, lines: LineBuffer, shadow: GeoBuffer, f:
     case "stove":
       stove(b, w, d, h);
       break;
+    case "bbq_indoor": {
+      const c0 = buf.c.length;
+      bbqIndoor(b, w, d, h, f.variant ?? null);
+      if (lightLook) keepBright(buf.c, c0);
+      break;
+    }
     case "sink":
       sink(b, w, d, h);
       break;
@@ -1714,6 +2185,30 @@ function buildFurniture(buf: GeoBuffer, lines: LineBuffer, shadow: GeoBuffer, f:
     case "plant":
       plant(b, w, d, h);
       break;
+    case "plant_moreia": {
+      const c0 = buf.c.length;
+      plantMoreia(b, w, d, h);
+      if (lightLook) keepBright(buf.c, c0);
+      break;
+    }
+    case "plant_podocarpo": {
+      const c0 = buf.c.length;
+      plantPodocarpo(b, w, d, h);
+      if (lightLook) keepBright(buf.c, c0);
+      break;
+    }
+    case "plant_jiboia": {
+      const c0 = buf.c.length;
+      plantJiboia(b, w, d, h, f.variant ?? null);
+      if (lightLook) keepBright(buf.c, c0);
+      break;
+    }
+    case "plant_orquidea": {
+      const c0 = buf.c.length;
+      plantOrquidea(b, w, d, h, f.variant ?? null);
+      if (lightLook) keepBright(buf.c, c0);
+      break;
+    }
     case "rug":
       rug(b, w, d);
       return; // flat, no contact shadow
@@ -1851,7 +2346,7 @@ function buildFurniture(buf: GeoBuffer, lines: LineBuffer, shadow: GeoBuffer, f:
       } else b.box(-w / 2, w / 2, 0, h, -d / 2, d / 2, C.body, C.bodyTop, EDGE_FURN);
     }
   }
-  contactShadow(shadow, tf, w, d, f.type === "plant" ? 0.35 : 0.5, roundFootprint(f), Math.min(0, base));
+  contactShadow(shadow, tf, w, d, f.type === "plant" || f.type.startsWith("plant_") ? 0.35 : 0.5, roundFootprint(f), Math.min(0, base));
 }
 
 /**
@@ -1859,6 +2354,7 @@ function buildFurniture(buf: GeoBuffer, lines: LineBuffer, shadow: GeoBuffer, f:
  * only while bright and strong enough, so these parts are drawn anew on a look change (#609).
  */
 export function hasFixedColors(type: string): boolean {
+  if (type.startsWith("plant_") || type === "bbq_indoor") return true;
   return !!packItem(type)?.parts.some((p) => p.color?.startsWith("#") || p.top?.startsWith("#"));
 }
 

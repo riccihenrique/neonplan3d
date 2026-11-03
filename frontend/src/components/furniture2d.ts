@@ -67,7 +67,7 @@ function cornerSeating(w: number, d: number, u: boolean): Part[] {
 }
 
 /** Symbol parts for a furniture type of size w × d (metres). */
-export function furnitureSymbol(type: string, w: number, d: number): Part[] | typeof nothing {
+export function furnitureSymbol(type: string, w: number, d: number, variant?: string | null): Part[] | typeof nothing {
   switch (type) {
     case "sofa":
       return seating(w, d, Math.max(1, Math.round((w - 0.4) / 0.62)), true);
@@ -132,6 +132,28 @@ export function furnitureSymbol(type: string, w: number, d: number): Part[] | ty
     case "stove": {
       const r = Math.min(w, d) * 0.14;
       return [circle(-w * 0.22, -d * 0.2, r), circle(w * 0.22, -d * 0.2, r * 0.8), circle(-w * 0.22, d * 0.2, r * 0.8), circle(w * 0.22, d * 0.2, r)];
+    }
+    case "bbq_indoor": {
+      const wall = Math.max(0.07, Math.min(0.13, w * 0.13));
+      const back = Math.max(0.06, Math.min(0.11, d * 0.16));
+      const out: Part[] = [rect(-w / 2, -d / 2, w / 2, -d / 2 + back, "fp3d-sym-fill")];
+      if (variant !== "hood") {
+        out.push(rect(-w / 2, -d / 2 + back, -w / 2 + wall, d / 2 - 0.04, "fp3d-sym-fill"), rect(w / 2 - wall, -d / 2 + back, w / 2, d / 2 - 0.04, "fp3d-sym-fill"));
+      } else {
+        out.push(line(-w / 2 + wall * 0.6, -d / 2 + back, -w / 2 + wall * 0.6, d / 2 - 0.06, "fp3d-sym-strong"), line(w / 2 - wall * 0.6, -d / 2 + back, w / 2 - wall * 0.6, d / 2 - 0.06, "fp3d-sym-strong"));
+      }
+      const x0 = -w / 2 + wall + 0.04;
+      const x1 = w / 2 - wall - 0.04;
+      const bars = Math.max(4, Math.round((x1 - x0) / 0.085));
+      for (let i = 0; i <= bars; i++) {
+        const gx = x0 + ((x1 - x0) * i) / bars;
+        out.push(line(gx, -d / 2 + back + 0.04, gx, d / 2 - 0.1));
+      }
+      out.push(line(x0, d / 2 - 0.1, x1, d / 2 - 0.1, "fp3d-sym-strong"));
+      if (variant === "hood" || variant === "brick") {
+        out.push(rect(-w * 0.22, -d / 2 + 0.02, w * 0.22, -d / 2 + Math.min(0.28, d * 0.42)));
+      }
+      return out;
     }
     case "sink": {
       const bw = Math.min(0.5, w - 0.2);
@@ -211,6 +233,87 @@ export function furnitureSymbol(type: string, w: number, d: number): Part[] | ty
       return [rect(-w / 2, -d / 2, w / 2, d / 2, "fp3d-sym-fill"), ellipse(0, d / 2, w / 2 + 0.06, 0.09)];
     case "plant":
       return [circle(0, 0, Math.min(w, d) * 0.46), circle(0, 0, Math.min(w, d) * 0.25)];
+    case "plant_moreia": {
+      const step = Math.max(0.28, Math.min(0.58, Math.min(w, d) * 0.92));
+      const nx = Math.max(1, Math.round(w / step));
+      const nz = Math.max(1, Math.round(d / step));
+      const cw = w / nx;
+      const cd = d / nz;
+      const r = Math.min(cw, cd) * 0.46;
+      const out: Part[] = [];
+      for (let ix = 0; ix < nx; ix++) {
+        for (let iz = 0; iz < nz; iz++) {
+          const cx = -w / 2 + cw * (ix + 0.5);
+          const cz = -d / 2 + cd * (iz + 0.5);
+          const yaw = ((ix * 7 + iz * 13) * 0.65) % (Math.PI * 2);
+          out.push(circle(cx, cz, r * 0.2));
+          for (let k = 0; k < 8; k++) {
+            const a = yaw + (k / 8) * Math.PI * 2;
+            const len = r * (k % 2 ? 0.78 : 0.98);
+            out.push(line(cx + Math.cos(a) * r * 0.16, cz + Math.sin(a) * r * 0.16, cx + Math.cos(a) * len, cz + Math.sin(a) * len, k % 2 ? "" : "fp3d-sym-strong"));
+          }
+          for (let s = 0; s < 2; s++) {
+            const fa = yaw + 0.48 + s * 2.4;
+            out.push(circle(cx + Math.cos(fa) * r * 0.42, cz + Math.sin(fa) * r * 0.42, Math.max(0.018, r * 0.12), "fp3d-sym-fill"));
+          }
+        }
+      }
+      return out;
+    }
+    case "plant_podocarpo": {
+      const step = Math.max(0.36, Math.min(0.66, Math.min(w, d) * 0.92));
+      const nx = Math.max(1, Math.round(w / step));
+      const nz = Math.max(1, Math.round(d / step));
+      const cw = w / nx;
+      const cd = d / nz;
+      const r = Math.min(cw, cd) * 0.46;
+      const out: Part[] = [];
+      for (let ix = 0; ix < nx; ix++) {
+        for (let iz = 0; iz < nz; iz++) {
+          const cx = -w / 2 + cw * (ix + 0.5);
+          const cz = -d / 2 + cd * (iz + 0.5);
+          out.push(circle(cx, cz, r * 0.94), circle(cx, cz, r * 0.6), circle(cx, cz, Math.max(0.02, r * 0.16), "fp3d-sym-fill"));
+          for (let k = 0; k < 6; k++) {
+            const a = (k / 6) * Math.PI * 2 + 0.3;
+            out.push(line(cx + Math.cos(a) * r * 0.58, cz + Math.sin(a) * r * 0.58, cx + Math.cos(a) * r * 0.94, cz + Math.sin(a) * r * 0.94));
+          }
+        }
+      }
+      return out;
+    }
+    case "plant_jiboia": {
+      const r = Math.min(w, d) / 2;
+      const out: Part[] = [circle(0, 0, r * 0.54)];
+      if (variant === "totem") out.push(circle(0, 0, r * 0.18, "fp3d-sym-fill"));
+      for (let k = 0; k < 7; k++) {
+        const a = (k / 7) * Math.PI * 2 + 0.25;
+        const reach = variant === "hanging" && Math.sin(a) > 0.15 ? r * 0.98 : r * 0.84;
+        out.push(line(Math.cos(a) * r * 0.2, Math.sin(a) * r * 0.2, Math.cos(a) * reach, Math.sin(a) * reach, k % 2 ? "" : "fp3d-sym-strong"));
+      }
+      if (variant === "hanging") {
+        for (const x of [-r * 0.42, 0, r * 0.42]) out.push(circle(x, d * 0.4, Math.max(0.016, r * 0.12), "fp3d-sym-fill"));
+      }
+      return out;
+    }
+    case "plant_orquidea": {
+      const nx = Math.max(1, Math.round(w / 0.34));
+      const cw = w / nx;
+      const r = Math.min(cw, d) * 0.45;
+      const out: Part[] = [];
+      for (let i = 0; i < nx; i++) {
+        const cx = -w / 2 + cw * (i + 0.5);
+        out.push(
+          circle(cx, -r * 0.06, r * 0.56),
+          ellipse(cx - r * 0.42, -r * 0.06, r * 0.36, r * 0.16),
+          ellipse(cx + r * 0.42, -r * 0.06, r * 0.36, r * 0.16),
+          line(cx, -r * 0.08, cx, r * 0.72, "fp3d-sym-strong"),
+          circle(cx - r * 0.16, r * 0.34, Math.max(0.016, r * 0.15), "fp3d-sym-fill"),
+          circle(cx + r * 0.16, r * 0.52, Math.max(0.016, r * 0.15), "fp3d-sym-fill"),
+          circle(cx, r * 0.72, Math.max(0.014, r * 0.13), "fp3d-sym-fill"),
+        );
+      }
+      return out;
+    }
     case "rug":
       return [rect(-w / 2 + 0.1, -d / 2 + 0.1, w / 2 - 0.1, d / 2 - 0.1)];
     case "stairs": {
