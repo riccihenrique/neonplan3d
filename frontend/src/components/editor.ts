@@ -139,6 +139,7 @@ import {
   SILL_BOARDS,
   openingStyle,
   isFrontDoor,
+  isSlidingGlass,
   type OpeningStyle,
   type SillBoard,
   type ScreenPicture,
@@ -4790,6 +4791,7 @@ export class Fp3dEditor extends LitElement {
       hinge: "left",
       leaves: defaults.leaves,
       swing: "in",
+      ...(preset !== "door" && "style" in defaults && defaults.style ? { style: defaults.style } : {}),
       cover: null,
       contact: null,
       contact2: null,
@@ -10152,6 +10154,34 @@ export class Fp3dEditor extends LitElement {
         const b1 = q(p1, across[0] + Math.min(2, o.height));
         symbol = svg`<line x1=${a0[0]} y1=${a0[1]} x2=${a1[0]} y2=${a1[1]} />
           <path class="fp3d-open-track" d="M${a0[0]} ${a0[1]}L${b0[0]} ${b0[1]}M${a1[0]} ${a1[1]}L${b1[0]} ${b1[1]}" />`;
+      } else if (isSlidingGlass(style)) {
+        // dual-track sliding glass door or window: offset overlapping sashes inside the wall reveal (no swing arc)
+        const mid = (across[0] - across[1]) / 2;
+        const nOut = mid - 0.024;
+        const nIn = mid + 0.024;
+        const atPct = (k: number): Vec2 => [p0[0] + (p1[0] - p0[0]) * k, p0[1] + (p1[1] - p0[1]) * k];
+        const seg = (ka: number, kb: number, nn: number) => {
+          const [xa, ya] = q(atPct(ka), nn);
+          const [xb, yb] = q(atPct(kb), nn);
+          return svg`<line x1=${xa} y1=${ya} x2=${xb} y2=${yb} />`;
+        };
+        const hingeAtP0 = (o.hinge === "left") === sgn > 0;
+        const cap0a = q(p0, mid - 0.04);
+        const cap0b = q(p0, mid + 0.04);
+        const cap1a = q(p1, mid - 0.04);
+        const cap1b = q(p1, mid + 0.04);
+        if (o.leaves === 2) {
+          const cm0 = q(atPct(0.5), nIn - 0.018);
+          const cm1 = q(atPct(0.5), nIn + 0.018);
+          symbol = svg`<line x1=${cap0a[0]} y1=${cap0a[1]} x2=${cap0b[0]} y2=${cap0b[1]} />
+            <line x1=${cap1a[0]} y1=${cap1a[1]} x2=${cap1b[0]} y2=${cap1b[1]} />
+            ${seg(0, 0.28, nOut)}${seg(0.72, 1, nOut)}${seg(0.24, 0.5, nIn)}${seg(0.5, 0.76, nIn)}
+            <line x1=${cm0[0]} y1=${cm0[1]} x2=${cm1[0]} y2=${cm1[1]} />`;
+        } else {
+          symbol = svg`<line x1=${cap0a[0]} y1=${cap0a[1]} x2=${cap0b[0]} y2=${cap0b[1]} />
+            <line x1=${cap1a[0]} y1=${cap1a[1]} x2=${cap1b[0]} y2=${cap1b[1]} />
+            ${hingeAtP0 ? svg`${seg(0, 0.54, nOut)}${seg(0.46, 1, nIn)}` : svg`${seg(0, 0.54, nIn)}${seg(0.46, 1, nOut)}`}`;
+        }
       } else if (o.type === "door") {
         // leaves swinging into the room (or out of it) from the hinge side; "left" is seen from the
         // room, so it depends on which way round the outline runs
@@ -11090,6 +11120,10 @@ export class Fp3dEditor extends LitElement {
     };
     const preset = openingPreset(o);
     const door = o.type === "door";
+    const curStyle = openingStyle(o, this.openingIsExterior(o));
+    const slidingGlass = isSlidingGlass(curStyle);
+    const fixedGlass = curStyle === "glass_wall" || curStyle === "passage";
+    const swings = !slidingGlass && !fixedGlass;
     return html`<section>
       <div class="fp3d-h3row"><h3>${this.t(`preset_${preset}` as I18nKey)}</h3>${this.fixButton("opening", o.id)}</div>
       ${admin
@@ -11099,12 +11133,12 @@ export class Fp3dEditor extends LitElement {
             )}
           </div>`
         : nothing}
-      ${admin && !garage
+      ${admin && !garage && !fixedGlass
         ? html`<div class="fp3d-actions">
             <button class="fp3d-btn" title=${this.t("flip_hinge_hint")} @click=${() => this.updateOpening({ hinge: o.hinge === "left" ? "right" : "left" })}>
-              ⇆ ${this.t(o.leaves === 2 ? "flip_main_leaf" : "flip_hinge")}
+              ⇆ ${this.t(o.leaves === 2 ? "flip_main_leaf" : slidingGlass || curStyle === "sliding" ? "flip_sliding_leaf" : "flip_hinge")}
             </button>
-            ${door || (window && o.sill < 0.1)
+            ${swings
               ? html`<button class="fp3d-btn" title=${this.t("flip_swing_hint")} @click=${() => this.updateOpening({ swing: o.swing === "out" ? "in" : "out" })}>
                   ⇅ ${this.t("flip_swing")}
                 </button>`
@@ -11129,6 +11163,17 @@ export class Fp3dEditor extends LitElement {
               >
                 ▭ ${this.t("cellar_window")}
               </button>
+              ${(this.floor?.openings ?? []).filter((x) => x.type === "window" && x.style !== "glass_wall").length > 1
+                ? html`<button
+                    class="fp3d-btn"
+                    @click=${() =>
+                      this.change((_, fl) => {
+                        for (const x of fl.openings) if (x.type === "window" && x.style !== "glass_wall") x.style = "window_sliding";
+                      })}
+                  >
+                    ⇄ ${this.t("apply_sliding_all_windows")}
+                  </button>`
+                : nothing}
             </div>`
           : nothing}
         ${garage ? nothing : this.renderStyleSelect(o)}
@@ -11148,10 +11193,10 @@ export class Fp3dEditor extends LitElement {
             <option value="closed" ?selected=${o.mark === "closed"}>${this.t("opening_mark_closed")}</option>
           </select></label
         >
-        ${garage
+        ${garage || fixedGlass
           ? nothing
           : html`<label class="fp3d-field fp3d-wide"
-          >${this.t(o.leaves === 2 ? "main_leaf" : "hinge")}
+          >${this.t(o.leaves === 2 ? "main_leaf" : slidingGlass || curStyle === "sliding" ? "sliding_leaf_side" : "hinge")}
           <select ?disabled=${!admin} @change=${(e: Event) => this.updateOpening({ hinge: (e.target as HTMLSelectElement).value as "left" | "right" })}>
             <option value="left" ?selected=${o.hinge === "left"}>${this.t("hinge_left")}</option>
             <option value="right" ?selected=${o.hinge === "right"}>${this.t("hinge_right")}</option>
@@ -11193,20 +11238,22 @@ export class Fp3dEditor extends LitElement {
                     ><input type="checkbox" .checked=${!!o.shut} ?disabled=${!admin} @change=${(ev: Event) => this.updateOpening({ shut: (ev.target as HTMLInputElement).checked })} />
                     ${this.t("door_shut")}</label
                   >
-                  <label class="fp3d-field" title=${this.t("door_angle_hint")}
-                    >${this.t("door_angle")}
-                    <select
-                      ?disabled=${!admin}
-                      @change=${(ev: Event) => {
-                        const v = Number((ev.target as HTMLSelectElement).value);
-                        this.updateOpening({ open_angle: v > 0 ? v : null });
-                      }}
-                    >
-                      <option value="0" ?selected=${!o.open_angle}>${this.t("door_angle_default")}</option>
-                      ${[15, 30, 45, 60, 90].map((a) => html`<option value=${a} ?selected=${o.open_angle === a}>${a}°</option>`)}
-                      ${o.open_angle && ![15, 30, 45, 60, 90].includes(o.open_angle) ? html`<option value=${o.open_angle} selected>${o.open_angle}°</option>` : nothing}
-                    </select></label
-                  >
+                  ${!slidingGlass && curStyle !== "sliding" && curStyle !== "passage"
+                    ? html`<label class="fp3d-field" title=${this.t("door_angle_hint")}
+                        >${this.t("door_angle")}
+                        <select
+                          ?disabled=${!admin}
+                          @change=${(ev: Event) => {
+                            const v = Number((ev.target as HTMLSelectElement).value);
+                            this.updateOpening({ open_angle: v > 0 ? v : null });
+                          }}
+                        >
+                          <option value="0" ?selected=${!o.open_angle}>${this.t("door_angle_default")}</option>
+                          ${[15, 30, 45, 60, 90].map((a) => html`<option value=${a} ?selected=${o.open_angle === a}>${a}°</option>`)}
+                          ${o.open_angle && ![15, 30, 45, 60, 90].includes(o.open_angle) ? html`<option value=${o.open_angle} selected>${o.open_angle}°</option>` : nothing}
+                        </select></label
+                      >`
+                    : nothing}
                   ${this.entitySelect(this.t("door_lock"), o.lock ?? null, undefined, this.entityOptions((id) => id.startsWith("lock.")), (v) => this.updateOpening({ lock: v === "none" ? null : v }))}
                   <p class="fp3d-sub fp3d-wide">${this.t("door_lock_hint")}</p>`
                 : nothing}`}

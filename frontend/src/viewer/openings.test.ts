@@ -78,3 +78,18 @@ test("a board chosen by hand shows on a window down to the floor; a glass wall h
   const glassBoard = info("gb", 1, 2.4, 0.9, 2.4, { style: "glass_wall", sill_board: "inside" });
   assert.deepEqual(sillBoards(glassBoard, [glassBoard]), { inside: true, outside: false });
 });
+
+test("sliding glass doors and windows build valid 3D geometry and slide along the wall", async () => {
+  const { buildOpeningParts } = await import("./openings.ts");
+  const winSliding = info("ws", 1, 1.6, 0.9, 2.2, { style: "window_sliding" });
+  const doorSliding4 = info("ds4", 2, 2.8, 0, 2.2, { style: "sliding_glass" });
+  const states = new Map([
+    ["ws", { open: 0.8, tilt: 0, cover: null }],
+    ["ds4", { open: 0.5, open2: 0.5, tilt: 0, cover: null, unlocked: true }],
+  ]);
+  const parts = buildOpeningParts([winSliding, doorSliding4], states, 2.5);
+  assert.ok(parts.frames.getAttribute("position").count > 0);
+  assert.ok(parts.glass.getAttribute("position").count > 0);
+  assert.equal(parts.frameTris.length, 2);
+  assert.equal(parts.glassTris.length, 2);
+});

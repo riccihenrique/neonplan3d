@@ -4,7 +4,7 @@
 // so all windows of a floor stay three draw calls: frames, glass and blinds.
 
 import { Color, type BufferGeometry } from "three";
-import { sidelightLayout, isFrontDoor, openingStyle } from "../model.ts";
+import { isFrontDoor, isSlidingGlass, openingStyle, sidelightLayout } from "../model.ts";
 import type { OpeningInfo } from "./build.ts";
 import { ALWAYS, GeoBuffer, shade } from "./geo.ts";
 
@@ -189,9 +189,11 @@ export function buildOpeningParts(infos: readonly OpeningInfo[], states: Readonl
     const mid = (info.faceRoom - info.faceOut) / 2;
     // highlighted while open, or while closed when the opening asks for it (and a sensor knows)
     const markClosed = info.opening.mark === "closed";
+    const style = openingStyle(info.opening, info.exterior);
     // a passage (wall opening without a door) shows nothing but the gap in the wall
-    const passage = info.opening.type === "door" && openingStyle(info.opening, info.exterior) === "passage";
-    if ((info.opening.type === "door" && !passage) || info.opening.type === "garage") {
+    const passage = info.opening.type === "door" && style === "passage";
+    const slidingGlass = isSlidingGlass(style);
+    if ((info.opening.type === "door" && !passage && !slidingGlass) || info.opening.type === "garage") {
       // door frame (Zarge) around the opening, covering the reveal on both faces; an open garage door glows warm
       const n0 = -info.faceOut - 0.012;
       const n1 = info.faceRoom + 0.012;
@@ -202,10 +204,88 @@ export function buildOpeningParts(infos: readonly OpeningInfo[], states: Readonl
       splitBox(frames, tf, W - 0.02, W + 0.045, n0, n1, 0, T + 0.045, frameC, frameTop, cut, bucket);
       splitBox(frames, tf, 0.02, W - 0.02, n0, n1, T - 0.02, T + 0.045, frameC, frameTop, cut, bucket);
     }
-    if (info.opening.type === "door") {
+    if (slidingGlass) {
+      // Framed sliding glass door or window: dual parallel tracks inside an aluminium/PVC perimeter frame;
+      // 1 leaf = 1 fixed pane + 1 sliding sash, 2 leaves = 2 fixed outer panes + 2 central sliding sashes.
+      const fw = Math.min(0.048, W * 0.1);
+      const fd = 0.046;
+      const bH = S > 0.05 ? fw : 0.022;
+      splitBox(frames, tf, 0, fw, mid - fd, mid + fd, S, T, frameC, frameTop, cut, bucket);
+      splitBox(frames, tf, W - fw, W, mid - fd, mid + fd, S, T, frameC, frameTop, cut, bucket);
+      splitBox(frames, tf, fw, W - fw, mid - fd, mid + fd, S, S + bH, frameC, frameTop, cut, bucket);
+      splitBox(frames, tf, fw, W - fw, mid - fd, mid + fd, T - fw, T, frameC, frameTop, cut, bucket);
+      // visible dual metallic guide rails along the bottom track
+      const railC = new Color(HANDLE);
+      for (const rn of [mid - 0.017, mid + 0.017]) {
+        splitBox(frames, tf, fw, W - fw, rn - 0.003, rn + 0.003, S + bH, S + bH + 0.005, railC, new Color(HANDLE_TOP), cut, bucket);
+      }
+      if (info.opening.type === "window") boardsOf(info, infos, frames, tf, mid, fd, frameTop, cut, bucket);
+      const sy0 = S + bH;
+      const sy1 = T - fw;
+      const innerW = Math.max(0.16, W - 2 * fw);
+      const sw = Math.min(info.opening.type === "door" ? 0.044 : 0.036, Math.max(0.02, innerW * 0.08));
+      const ov = Math.min(0.022, innerW * 0.04);
+      const nOut0 = mid - 0.029;
+      const nOut1 = mid - 0.005;
+      const nIn0 = mid + 0.005;
+      const nIn1 = mid + 0.029;
+      const two = info.opening.leaves === 2;
+      const isDoor = info.opening.type === "door";
+      const hasSecond = !!(info.opening.contact2 || info.opening.tilt2);
+      const raw1 = Math.min(1, Math.max(0, isDoor ? st.open : Math.max(st.open, st.tilt * 0.25)));
+      const raw2 = two
+        ? hasSecond
+          ? Math.min(1, Math.max(0, isDoor ? (st.open2 ?? 0) : Math.max(st.open2 ?? 0, (st.tilt2 ?? 0) * 0.25)))
+          : raw1
+        : 0;
+      const drawPane = (px0: number, px1: number, pn0: number, pn1: number, moving: boolean, handleAtEnd: boolean, openAmt: number, mainLeaf: boolean) => {
+        const ajar = moving && openAmt > 0.02;
+        const warm = moving && (markClosed ? !!st.sensed && !ajar : isDoor ? openAmt > 0.9 : ajar);
+        const sashC = warm ? shade(OPEN_WARM, 0.75) : new Color(SASH);
+        const sashTop = warm ? shade(OPEN_WARM, 0.95) : frameTop;
+        splitBox(frames, tf, px0, px0 + sw, pn0, pn1, sy0, sy1, sashC, sashTop, cut, bucket);
+        splitBox(frames, tf, px1 - sw, px1, pn0, pn1, sy0, sy1, sashC, sashTop, cut, bucket);
+        splitBox(frames, tf, px0 + sw, px1 - sw, pn0, pn1, sy0, sy0 + sw, sashC, sashTop, cut, bucket);
+        splitBox(frames, tf, px0 + sw, px1 - sw, pn0, pn1, sy1 - sw, sy1, sashC, sashTop, cut, bucket);
+        panel(glass, tf, px0 + sw, px1 - sw, (pn0 + pn1) / 2, sy0 + sw, sy1 - sw, warm && !isDoor ? shade(OPEN_WARM, 0.16) : GLASS, cut, bucket);
+        if (moving) {
+          const hy = isDoor || S < 0.2 ? Math.min(sy1 - 0.18, Math.max(sy0 + 0.18, 1.02)) : (sy0 + sy1) / 2;
+          const hh = Math.min(isDoor || S < 0.2 ? 0.14 : 0.07, Math.max(0.025, (sy1 - sy0) * 0.16));
+          const hx0 = handleAtEnd ? px1 - sw * 0.82 : px0 + sw * 0.22;
+          const hx1 = handleAtEnd ? px1 - sw * 0.22 : px0 + sw * 0.82;
+          splitBox(frames, tf, hx0, hx1, pn1 + 0.002, pn1 + 0.018, hy - hh, hy + hh, new Color(HANDLE), new Color(HANDLE_TOP), cut, bucket);
+          splitBox(frames, tf, hx0, hx1, pn0 - 0.018, pn0 - 0.002, hy - hh, hy + hh, new Color(HANDLE), new Color(HANDLE_TOP), cut, bucket);
+          if (st.unlocked && mainLeaf) {
+            const lx0 = handleAtEnd ? px1 - 0.02 : px0 - 0.003;
+            const lx1 = handleAtEnd ? px1 + 0.003 : px0 + 0.02;
+            splitBox(frames, tf, lx0, lx1, pn0 - 0.005, pn1 + 0.005, sy0 + 0.03, sy1 - 0.03, shade(UNLOCKED, 0.85), shade(UNLOCKED, 1), cut, bucket);
+          }
+        }
+      };
+      if (two) {
+        const paneW = innerW / 4 + ov * 0.5;
+        const maxSlide = Math.max(0, W / 2 - fw - paneW - Math.min(0.035, innerW * 0.03));
+        const [openStart, openEnd] = info.hingeAtStart ? [raw1, raw2] : [raw2, raw1];
+        drawPane(fw, fw + paneW, nOut0, nOut1, false, false, 0, false);
+        drawPane(W - fw - paneW, W - fw, nOut0, nOut1, false, false, 0, false);
+        drawPane(W / 2 - paneW - openStart * maxSlide, W / 2 - openStart * maxSlide, nIn0, nIn1, true, true, openStart, info.hingeAtStart);
+        drawPane(W / 2 + openEnd * maxSlide, W / 2 + paneW + openEnd * maxSlide, nIn0, nIn1, true, false, openEnd, !info.hingeAtStart);
+      } else {
+        const paneW = innerW / 2 + ov;
+        const maxSlide = Math.max(0, innerW - paneW - Math.min(0.045, innerW * 0.05));
+        if (info.hingeAtStart) {
+          drawPane(fw, fw + paneW, nOut0, nOut1, false, false, 0, false);
+          const dx = -raw1 * maxSlide;
+          drawPane(W - fw - paneW + dx, W - fw + dx, nIn0, nIn1, true, true, raw1, true);
+        } else {
+          drawPane(W - fw - paneW, W - fw, nOut0, nOut1, false, false, 0, false);
+          const dx = raw1 * maxSlide;
+          drawPane(fw + dx, fw + paneW + dx, nIn0, nIn1, true, false, raw1, true);
+        }
+      }
+    } else if (info.opening.type === "door") {
       // leaves flush with the face they swing towards (the room, or the other side), turning around
       // their hinges; a double door has a leaf at each end meeting in the middle
-      const style = openingStyle(info.opening, info.exterior);
       const front = isFrontDoor(style);
       const s = info.opening.swing === "out" ? -1 : 1;
       const face = s > 0 ? info.faceRoom : -info.faceOut;
@@ -330,8 +410,10 @@ export function buildOpeningParts(infos: readonly OpeningInfo[], states: Readonl
       const sw = 0.055;
       const sy0 = S + (S > 0.05 ? fw : 0.03);
       const sy1 = T - fw;
-      const n0 = mid + fd;
-      const n1 = mid + fd + 0.06;
+      const out = info.opening.swing === "out";
+      const hingeN = out ? mid - fd : mid + fd;
+      const n0 = out ? hingeN - 0.06 : hingeN;
+      const n1 = out ? hingeN : hingeN + 0.06;
       const two = info.opening.leaves === 2;
       const sashes: { atStart: boolean; x0: number; x1: number; open: number; tilt: number }[] = two
         ? [
@@ -347,16 +429,16 @@ export function buildOpeningParts(infos: readonly OpeningInfo[], states: Readonl
         const sx0 = sash.x0;
         const sx1 = sash.x1;
         const sashW = sx1 - sx0;
-        // a terrace door may open outwards (swing "out"); tilting stays inwards
-        const theta = sash.open * OPEN_ANGLE * (info.opening.swing === "out" ? -1 : 1);
-        const phi = sash.tilt * TILT_ANGLE;
+        // windows and terrace doors swing outwards when swing === "out", around the outer frame edge
+        const theta = sash.open * OPEN_ANGLE * (out ? -1 : 1);
+        const phi = sash.tilt * TILT_ANGLE * (out ? -1 : 1);
         // sash coordinates: u from the hinge across the sash, n, y
         const sashTf: Tf = (u, n, y) => {
           const dy = y - sy0;
           let nn = n + dy * Math.sin(phi);
           const yy = sy0 + dy * Math.cos(phi);
-          const along = u * Math.cos(theta) - (nn - n0) * Math.sin(theta);
-          nn = n0 + (nn - n0) * Math.cos(theta) + u * Math.sin(theta);
+          const along = u * Math.cos(theta) - (nn - hingeN) * Math.sin(theta);
+          nn = hingeN + (nn - hingeN) * Math.cos(theta) + u * Math.sin(theta);
           const x = sash.atStart ? sx0 + along : sx1 - along;
           return tf(x, nn, yy);
         };

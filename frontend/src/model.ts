@@ -1820,10 +1820,15 @@ export const OPENING_DEFAULTS = {
 
 /** Kinds of openings offered when placing one; a terrace door is a window down to the floor. */
 /** Door looks: room doors, front doors (with glass, one or two sidelights), a glass door, a sliding door. */
-export const DOOR_STYLES = ["interior", "front", "front_glass", "sidelight", "sidelights", "glass", "sliding", "passage"] as const;
+export const DOOR_STYLES = ["interior", "front", "front_glass", "sidelight", "sidelights", "glass", "sliding", "sliding_glass", "passage"] as const;
 /** "glass_wall": fixed floor-to-ceiling glazing without sashes, slim mullions (an indoor glass wall, #163). */
-export const WINDOW_STYLES = ["standard", "bars", "glass_wall"] as const;
+export const WINDOW_STYLES = ["standard", "window_sliding", "bars", "glass_wall"] as const;
 export type OpeningStyle = (typeof DOOR_STYLES)[number] | (typeof WINDOW_STYLES)[number];
+
+/** Framed sliding glass door or sliding glass window (sashes run horizontally on parallel tracks inside the frame). */
+export function isSlidingGlass(style: OpeningStyle): boolean {
+  return style === "sliding_glass" || style === "window_sliding";
+}
 
 /** The style an opening is drawn with: its own, or the automatic one for its wall. */
 export function openingStyle(o: Pick<Opening, "type" | "style">, exterior: boolean): OpeningStyle {
@@ -1869,7 +1874,12 @@ export function sidelightLayout(
  */
 export function lockAlong(o: Pick<Opening, "type" | "style" | "width" | "leaves" | "sidelight_hinge" | "sidelight_width" | "sidelight_width2">, hingeAtStart: boolean): number {
   const W = o.width;
-  const lights = sidelightLayout(W, openingStyle(o, false), hingeAtStart, o);
+  const style = openingStyle(o, false);
+  if (isSlidingGlass(style)) {
+    if (o.leaves === 2) return W / 2;
+    return hingeAtStart ? Math.max(W / 2, W - 0.12) : Math.min(W / 2, 0.12);
+  }
+  const lights = sidelightLayout(W, style, hingeAtStart, o);
   const x0 = lights?.x0 ?? 0;
   const x1 = lights?.x1 ?? W;
   if (o.leaves !== 2) return (x0 + x1) / 2;
@@ -1885,8 +1895,12 @@ export const OPENING_PRESETS = {
   door: { type: "door", leaves: 1, width: 0.9, sill: 0, height: 2.05, style: "interior" },
   front: { type: "door", leaves: 1, width: 1.0, sill: 0, height: 2.1, style: "front" },
   door_double: { type: "door", leaves: 2, width: 1.6, sill: 0, height: 2.05 },
+  door_sliding: { type: "door", leaves: 1, width: 1.6, sill: 0, height: 2.1, style: "sliding_glass" },
+  door_sliding_double: { type: "door", leaves: 2, width: 2.4, sill: 0, height: 2.1, style: "sliding_glass" },
   window: { type: "window", leaves: 1, width: 1.2, sill: 0.9, height: 1.3 },
   window_double: { type: "window", leaves: 2, width: 1.6, sill: 0.9, height: 1.3 },
+  window_sliding: { type: "window", leaves: 1, width: 1.5, sill: 0.9, height: 1.2, style: "window_sliding" },
+  window_sliding_double: { type: "window", leaves: 2, width: 2.0, sill: 0.9, height: 1.2, style: "window_sliding" },
   terrace: { type: "window", leaves: 1, width: 1.0, sill: 0, height: 2.1 },
   terrace_double: { type: "window", leaves: 2, width: 1.8, sill: 0, height: 2.1 },
   garage: { type: "garage", leaves: 1, width: 2.5, sill: 0, height: 2.1 },
@@ -1900,7 +1914,9 @@ export function openingPreset(o: Pick<Opening, "type" | "leaves" | "sill" | "sty
   if (o.type === "garage") return "garage";
   if (o.type === "window" && o.style === "glass_wall") return "glass_wall";
   const two = o.leaves === 2;
+  if (o.type === "window" && o.style === "window_sliding") return two ? "window_sliding_double" : "window_sliding";
   if (o.type === "door") {
+    if (o.style === "sliding_glass") return two ? "door_sliding_double" : "door_sliding";
     if (!two && o.style && isFrontDoor(o.style)) return "front";
     return two ? "door_double" : "door";
   }
