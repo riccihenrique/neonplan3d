@@ -19,7 +19,8 @@ import type { HeatMode } from "./heatmap.ts";
 import { THEMES, type Theme } from "./themes.ts";
 import { keepInRoom, snapToWall } from "./geometry/snap.ts";
 import { furnitureName } from "./furniture-names.ts";
-import { confirmEntities, defaultHeight, entityName, kindOf } from "./devices.ts";
+import { confirmEntities, defaultHeight, entityName, findAlarmEntity, kindOf } from "./devices.ts";
+import { openMoreInfo } from "./markers.ts";
 import { canLift, zonesOf, type LampMount } from "./model.ts";
 import { mountBase, packsVersion } from "./packs.ts";
 import { hasFeature, labOn, released } from "./features.ts";
@@ -929,6 +930,31 @@ export class Floorplan3dPanel extends LitElement {
     e.preventDefault();
   };
 
+  private renderSecurityChip(b: Building) {
+    const alarmEntity = findAlarmEntity(this.hass, b);
+    if (!alarmEntity || !this.hass) return nothing;
+    const st = this.hass.states[alarmEntity];
+    if (!st) return nothing;
+    const state = st.state;
+    if (state === "unavailable" || state === "unknown") return nothing;
+    const isTriggered = state === "triggered";
+    const isPending = state === "pending" || state === "arming";
+    const isArmed = state.startsWith("armed_");
+    const icon = isTriggered ? "🚨" : isPending ? "⏳" : isArmed ? "🔒" : "🛡️";
+    const stateKey = `alarm_state_${state}` as I18nKey;
+    const translated = this.t(stateKey);
+    const label = translated !== stateKey ? translated : state.replace("_", " ");
+
+    return html`<button
+      class="fp3d-chip fp3d-security-chip ${isTriggered ? "fp3d-sec-triggered" : ""}"
+      title="${entityName(this.hass, alarmEntity)}: ${label}"
+      aria-label="${entityName(this.hass, alarmEntity)}: ${label}"
+      @click=${() => openMoreInfo(this, alarmEntity)}
+    >
+      ${icon} ${label}
+    </button>`;
+  }
+
   private renderView(b: Building) {
     if (!b.floors.length || !b.floors.some((f) => f.rooms.length)) {
       return html`<div class="fp3d-empty">
@@ -1201,6 +1227,7 @@ export class Floorplan3dPanel extends LitElement {
                   </div>`
               : nothing}
           </div>
+          ${this.renderSecurityChip(b)}
           ${!hasFeature("camera_cockpit") && countMosaicCameras(this.hass, b) > 0
             ? html`<button class="fp3d-chip" aria-pressed=${this._mosaicOpen} @click=${() => (this._mosaicOpen = !this._mosaicOpen)}>
                 📹 ${this.t("cameras_short")} (${countMosaicCameras(this.hass, b)})

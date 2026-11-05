@@ -1685,6 +1685,7 @@ export function techBase(f: { type: string; variant?: string | null; h: number }
 
 export const ELECTRIC_FURNITURE = new Set<string>([
   ...LAMP_TYPES,
+  "alarm_keypad",
   "radiator",
   "ac_unit",
   "awning",

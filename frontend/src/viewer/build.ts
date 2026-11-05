@@ -516,8 +516,8 @@ export function buildFloorGeometry(
     const l0 = lines.p.length / 6;
     let f = item;
     let base = mountBase(floor, f);
-    if (GANG_TYPES.has(f.type)) {
-      // a switch or socket dropped into a wall stands on its face, on a low wall below its top (#593)
+    if (GANG_TYPES.has(f.type) || f.type === "alarm_keypad") {
+      // a switch, socket or alarm keypad dropped into a wall stands on its face (#593)
       const at = placeWallPlate(walls, f, floor.height, base);
       f = { ...f, x: at.x, z: at.z };
       base = at.y;

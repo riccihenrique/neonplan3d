@@ -1,7 +1,7 @@
 // Devices of a room: which entities belong to an area, what kind they are, how they are placed and
 // what their state looks like. Pure functions (no Lit, no three.js) so they can be tested directly.
 
-import type { Furniture, EntityRef, FenceGate, Floor, LampMount, Opening, Placement, RoofWindow, Room, Vec2 } from "./model.ts";
+import type { Building, Furniture, EntityRef, FenceGate, Floor, LampMount, Opening, Placement, RoofWindow, Room, Vec2 } from "./model.ts";
 import { centroid, outdoorZones, pointInPolygon } from "./model.ts";
 import { isRobotVacuum, packMotion, packScreen } from "./packs.ts";
 import type { HassEntity, HomeAssistant } from "./types.ts";
@@ -1083,7 +1083,7 @@ export function furnitureEntities(hass: HomeAssistant, floors: readonly Floor[])
     for (const f of floor.furniture) {
       const lamp = f.type in LAMP_NAMES;
       const pattern = lamp ? LAMP_NAMES[f.type] : (FURNITURE_NAMES[f.type] ?? (isRobotVacuum(f.type) ? FURNITURE_NAMES.robot_vacuum : undefined));
-      if (!pattern && f.entity == null && f.power == null) continue;
+      if (!pattern && f.entity == null && f.power == null && f.type !== "alarm_keypad") continue;
       // an awning hangs outside: the terrace or garden area it stands over counts as its room (#688)
       const room =
         floor.rooms.find((r) => r.points.length >= 3 && pointInPolygon([f.x, f.z], r.points)) ??
@@ -1100,6 +1100,8 @@ export function furnitureEntities(hass: HomeAssistant, floors: readonly Floor[])
           // vacuums are no device kind of their own: look them up in the room's area directly
           const area = room?.area_id ?? null;
           entity = Object.keys(hass.entities ?? {}).find((id) => id.startsWith("vacuum.") && !used.has(id) && !hiddenInHa(hass, id) && entityAreaId(hass, id) === area) ?? null;
+        } else if (f.type === "alarm_keypad") {
+          entity = Object.keys(hass.states).find((id) => id.startsWith("alarm_control_panel.")) ?? null;
         } else if (f.type === "radiator" || f.type === "ac_unit") {
           const climates = free.filter((id) => kindOf(id) === "climate");
           entity = climates.find((id) => pattern.test(name(id))) ?? climates[0] ?? null;
@@ -1131,6 +1133,26 @@ export function furnitureEntities(hass: HomeAssistant, floors: readonly Floor[])
     }
   }
   return out;
+}
+
+/** Finds the primary alarm_control_panel entity from building furniture/placements or HA states. */
+export function findAlarmEntity(hass: HomeAssistant | undefined, b?: Building | null): string | null {
+  if (!hass) return null;
+  for (const fl of b?.floors ?? []) {
+    for (const f of fl.furniture) {
+      if (f.type === "alarm_keypad" && f.entity && f.entity.startsWith("alarm_control_panel.")) {
+        if (hass.states[f.entity]) return f.entity;
+      }
+    }
+  }
+  for (const fl of b?.floors ?? []) {
+    for (const p of fl.placements ?? []) {
+      if (p.entity_id?.startsWith("alarm_control_panel.") && hass.states[p.entity_id]) {
+        return p.entity_id;
+      }
+    }
+  }
+  return Object.keys(hass.states).find((id) => id.startsWith("alarm_control_panel.")) ?? null;
 }
 
 /** An access point's status (D582): online, offline, or null when nothing says (unknown). */

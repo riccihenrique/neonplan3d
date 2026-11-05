@@ -61,6 +61,28 @@ export const controls = css`
     color: var(--fp3d-text);
     box-shadow: var(--fp3d-shadow);
   }
+  .fp3d-security-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 500;
+  }
+  .fp3d-sec-triggered {
+    background: #ff334b !important;
+    color: #ffffff !important;
+    animation: fp3d-sec-pulse 1s infinite alternate !important;
+    box-shadow: 0 0 14px rgba(255, 51, 75, 0.8) !important;
+  }
+  @keyframes fp3d-sec-pulse {
+    from {
+      opacity: 1;
+      transform: scale(1);
+    }
+    to {
+      opacity: 0.88;
+      transform: scale(1.04);
+    }
+  }
   button:focus-visible,
   input:focus-visible,
   select:focus-visible {

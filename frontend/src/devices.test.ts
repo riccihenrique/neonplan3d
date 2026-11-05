@@ -957,3 +957,37 @@ test("covers open, close and stop the way they can: a slat-only blind by its til
     { service: "set_cover_tilt_position", data: { tilt_position: 100, entity_id: ["cover.b"] } },
   ]);
 });
+
+test("findAlarmEntity discovers alarm from keypad, placements or hass states", async () => {
+  const { findAlarmEntity, furnitureEntities } = await import("./devices.ts");
+  const hass = {
+    states: {
+      "alarm_control_panel.alarme_residencia": { state: "disarmed", entity_id: "alarm_control_panel.alarme_residencia", attributes: {} },
+    },
+  } as never;
+
+  // 1. Discovers from alarm_keypad furniture item
+  const floorWithKeypad = {
+    id: "f1",
+    name: "Térreo",
+    elevation: 0,
+    height: 2.8,
+    cut_height: 1.4,
+    rooms: [],
+    furniture: [
+      { id: "ak1", type: "alarm_keypad", x: 1, z: 1, rotation: 0, w: 0.14, d: 0.024, h: 0.12, variant: null, entity: "alarm_control_panel.alarme_residencia", power: null },
+    ],
+    placements: [],
+  };
+  const b = { floors: [floorWithKeypad], rooms: [] } as never;
+  assert.equal(findAlarmEntity(hass, b), "alarm_control_panel.alarme_residencia");
+
+  // 2. Discovers from hass.states fallback even without furniture entity set
+  const floorEmpty = { id: "f1", name: "Térreo", elevation: 0, height: 2.8, cut_height: 1.4, rooms: [], furniture: [], placements: [] };
+  assert.equal(findAlarmEntity(hass, { floors: [floorEmpty] } as never), "alarm_control_panel.alarme_residencia");
+
+  // 3. furnitureEntities links alarm_keypad with automatic discovery
+  const unlinkedKeypad = { id: "ak2", type: "alarm_keypad", x: 1, z: 1, rotation: 0, w: 0.14, d: 0.024, h: 0.12, variant: null, entity: null, power: null };
+  const links = furnitureEntities(hass, [{ ...floorEmpty, furniture: [unlinkedKeypad] }]);
+  assert.equal(links.get("ak2")?.entity, "alarm_control_panel.alarme_residencia");
+});
