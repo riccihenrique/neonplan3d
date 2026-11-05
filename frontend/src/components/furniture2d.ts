@@ -231,6 +231,13 @@ export function furnitureSymbol(type: string, w: number, d: number, variant?: st
     case "wall_socket":
       // the frame on the wall and a ring around it: a few centimetres are hard to find in the plan otherwise
       return [rect(-w / 2, -d / 2, w / 2, d / 2, "fp3d-sym-fill"), ellipse(0, d / 2, w / 2 + 0.06, 0.09)];
+    case "alarm_keypad":
+      // wall security keypad: compact beveled rectangle with display line
+      return [
+        rect(-w / 2, -d / 2, w / 2, d / 2, "fp3d-sym-fill"),
+        ellipse(0, d / 2, w / 2 + 0.08, 0.1),
+        line(-w * 0.35, d / 2 + 0.02, w * 0.35, d / 2 + 0.02, "fp3d-sym-strong"),
+      ];
     case "plant":
       return [circle(0, 0, Math.min(w, d) * 0.46), circle(0, 0, Math.min(w, d) * 0.25)];
     case "plant_moreia": {

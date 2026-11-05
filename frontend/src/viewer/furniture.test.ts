@@ -383,4 +383,17 @@ test("plant_podocarpo, plant_jiboia and plant_orquidea build finite geometry acr
     const sr = screenRect(bbq, floor);
     assert.ok(sr && sr.x1 > sr.x0 && sr.y1 > sr.y0);
   }
+
+  // Wall-mounted alarm keypad ("alarm_keypad")
+  assert.equal(hasFixedColors("alarm_keypad"), true);
+  const keypadBuf = new GeoBuffer();
+  const keypadLines = new LineBuffer();
+  const keypadShadow = new GeoBuffer();
+  const keypad: Furniture = { id: "ak1", type: "alarm_keypad", x: 1, z: 1, rotation: 0, w: 0.14, d: 0.024, h: 0.12, variant: null, entity: "alarm_control_panel.alarme_casa", power: null };
+  pushFurniture(keypadBuf, keypadLines, keypadShadow, keypad, 1.3);
+  assert.ok(keypadBuf.p.length > 0 && keypadBuf.p.every(Number.isFinite));
+  assert.ok(keypadLines.p.length > 0 && keypadLines.p.every(Number.isFinite));
+  // Mounted on wall at standard height 1.3m (no floor shadow)
+  assert.equal(keypadShadow.p.length, 0);
+  assert.ok(keypadBuf.p.some((y, i) => i % 3 === 1 && y >= 1.29 && y <= 1.43), "keypad vertices lifted to wall height (~1.3m)");
 });

@@ -521,6 +521,39 @@ function wallPlate(b: Builder, w: number, d: number, h: number, n: number, socke
   }
 }
 
+/**
+ * Wall-mounted alarm keypad / security control panel (front at +z, back on the wall).
+ * Features a modern matte enclosure, backlit LCD status screen with status indicator LED,
+ * and a 3x4 numeric keypad grid.
+ */
+function alarmKeypad(b: Builder, w: number, d: number, h: number): void {
+  // Beveled outer casing on the wall
+  b.box(-w / 2, w / 2, 0, h, -d / 2, d / 2, C.white, C.whiteTop, EDGE_FURN);
+  // Dark LCD screen frame / window (upper section)
+  b.box(-w * 0.42, w * 0.42, h * 0.52, h * 0.88, d / 2, d / 2 + 0.002, C.dark, C.dark, EDGE_FAINT);
+  // Backlit display area (subtle emerald/cyan panel)
+  b.box(-w * 0.38, w * 0.38, h * 0.55, h * 0.85, d / 2 + 0.002, d / 2 + 0.004, 0x123626, 0x184833, EDGE_FAINT);
+  // Horizontal status text / graphic lines on the display
+  b.seg(-w * 0.32, h * 0.74, d / 2 + 0.005, w * 0.12, h * 0.74, d / 2 + 0.005, EDGE_GLOW);
+  b.seg(-w * 0.32, h * 0.64, d / 2 + 0.005, w * 0.28, h * 0.64, d / 2 + 0.005, EDGE_GLOW);
+  // Small status LED at top-right of casing
+  b.box(w * 0.32, w * 0.40, h * 0.90, h * 0.94, d / 2, d / 2 + 0.003, 0x22c55e, 0x4ade80, EDGE_GLOW);
+  // 3x4 numeric keypad grid (lower section)
+  const cols = 3;
+  const rows = 4;
+  const kw = (w * 0.78) / cols;
+  const kh = (h * 0.40) / rows;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const kx0 = -w * 0.39 + c * kw + kw * 0.12;
+      const kx1 = -w * 0.39 + (c + 1) * kw - kw * 0.12;
+      const ky0 = h * 0.07 + (rows - 1 - r) * kh + kh * 0.12;
+      const ky1 = h * 0.07 + (rows - r) * kh - kh * 0.12;
+      b.box(kx0, kx1, ky0, ky1, d / 2, d / 2 + 0.003, C.white, C.whiteTop, EDGE_FAINT);
+    }
+  }
+}
+
 /** Wi-Fi access point: a flat disc under the ceiling (its LED ring below) or a square plate on the wall (ring in front). */
 function wifiAp(b: Builder, w: number, d: number, h: number, wall: boolean): void {
   if (wall) {
@@ -2152,6 +2185,15 @@ function buildFurniture(buf: GeoBuffer, lines: LineBuffer, shadow: GeoBuffer, f:
       for (let i = l0 + 1; i < lines.p.length; i += 3) lines.p[i] += lift;
       return;
     }
+    case "alarm_keypad": {
+      const p0 = buf.p.length;
+      const l0 = lines.p.length;
+      alarmKeypad(b, w, d, h);
+      const lift = builtinBase(f);
+      for (let i = p0 + 1; i < buf.p.length; i += 3) buf.p[i] += lift;
+      for (let i = l0 + 1; i < lines.p.length; i += 3) lines.p[i] += lift;
+      return;
+    }
     case "awning":
       // drawn with its moving fabric and arms by pushAwning (it runs in and out with its cover)
       return;
@@ -2354,7 +2396,7 @@ function buildFurniture(buf: GeoBuffer, lines: LineBuffer, shadow: GeoBuffer, f:
  * only while bright and strong enough, so these parts are drawn anew on a look change (#609).
  */
 export function hasFixedColors(type: string): boolean {
-  if (type.startsWith("plant_") || type === "bbq_indoor") return true;
+  if (type.startsWith("plant_") || type === "bbq_indoor" || type === "alarm_keypad") return true;
   return !!packItem(type)?.parts.some((p) => p.color?.startsWith("#") || p.top?.startsWith("#"));
 }
 

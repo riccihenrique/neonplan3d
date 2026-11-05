@@ -75,6 +75,7 @@ export const SYNONYMS: Record<string, string[]> = {
   led_strip: ["led", "led streifen", "lichtleiste", "led strip"],
   wall_socket: ["steckdose", "socket", "outlet"],
   wall_switch: ["lichtschalter", "schalter", "light switch", "switch"],
+  alarm_keypad: ["alarmanlage", "alarm", "keypad", "alarme", "teclado de alarme"],
 };
 
 /** German compounds end in the thing itself: "auffahrtkamera" is said as "auffahrt" and "kamera", "flurlicht" as "flur" and "licht". */

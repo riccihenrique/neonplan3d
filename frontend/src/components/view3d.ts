@@ -3940,12 +3940,72 @@ export class Fp3dView3d extends LitElement {
     return html`<div class="fp3d-clock fp3d-clock-${pos}" aria-hidden="true"><b>${fmt({ hour: "2-digit", minute: "2-digit", ...hourCycle(this.hass) })}</b><span>${fmt({ weekday: "short", day: "numeric", month: "short" })}</span></div>`;
   }
 
+  private onAlertClick(a: Alert): void {
+    if (a.kind === "alarm" || a.kind === "alarm_pending") {
+      openMoreInfo(this, a.entity);
+      return;
+    }
+    this.jumpTo(a);
+  }
+
+  private findAlarmEntity(): string | null {
+    const hass = this.hass;
+    if (!hass) return null;
+    for (const fl of this.building?.floors ?? []) {
+      for (const f of fl.furniture) {
+        if (f.type === "alarm_keypad" && f.entity && f.entity.startsWith("alarm_control_panel.")) {
+          return f.entity;
+        }
+      }
+    }
+    const alarms = Object.keys(hass.states).filter((id) => id.startsWith("alarm_control_panel."));
+    return alarms[0] ?? null;
+  }
+
+  private renderSecurityStatus() {
+    const hass = this.hass;
+    if (!hass || this.clean || this.ro || this._walk) return nothing;
+    const entityId = this.findAlarmEntity();
+    if (!entityId) return nothing;
+    const st = hass.states[entityId];
+    if (!st) return nothing;
+    const state = st.state;
+    if (state === "unavailable" || state === "unknown") return nothing;
+    const isTriggered = state === "triggered";
+    const isPending = state === "pending" || state === "arming";
+    const isArmed = state.startsWith("armed_");
+    const icon = isTriggered ? "🚨" : isPending ? "⏳" : isArmed ? "🔒" : "🛡️";
+    const stateKey = `alarm_state_${state}` as I18nKey;
+    const translated = translate(hass, stateKey);
+    const label = translated !== stateKey ? translated : state.replace("_", " ");
+
+    return html`<button
+      class="fp3d-security-badge fp3d-security-${state} ${isTriggered ? "fp3d-security-triggered" : ""}"
+      title="${entityName(hass, entityId)}: ${label}"
+      aria-label="${entityName(hass, entityId)}: ${label}"
+      @click=${() => openMoreInfo(this, entityId)}
+    >
+      <span class="fp3d-security-icon">${icon}</span>
+      <span class="fp3d-security-label">${label}</span>
+    </button>`;
+  }
+
   private renderAlerts() {
     const b = this.building;
     if (!this._alerts.length || !b) return nothing;
     const shown = this._alerts.slice(0, 3);
     return html`<div class="fp3d-alert-banner" role="alert">
-      ${shown.map((a) => html`<button class="fp3d-alert fp3d-alert-${a.kind}" title=${alertText(this.hass, b, a)} @click=${() => this.jumpTo(a)}>${alertText(this.hass, b, a)}</button>`)}
+      ${shown.map((a) => {
+        const isAlarm = a.kind === "alarm" || a.kind === "alarm_pending";
+        return html`<button
+          class="fp3d-alert fp3d-alert-${a.kind} ${isAlarm ? "fp3d-alert-actionable" : ""}"
+          title=${alertText(this.hass, b, a)}
+          @click=${() => this.onAlertClick(a)}
+        >
+          <span>${alertText(this.hass, b, a)}</span>
+          ${isAlarm ? html`<span class="fp3d-alert-action-badge">🛡️ ${translate(this.hass, "alarm_disarm")}</span>` : nothing}
+        </button>`;
+      })}
       ${this._alerts.length > 3 ? html`<span class="fp3d-alert-more">+${this._alerts.length - 3}</span>` : nothing}
     </div>`;
   }
@@ -5806,7 +5866,7 @@ export class Fp3dView3d extends LitElement {
       style=${style}
     >
       ${this._error ? html`<p class="fp3d-error">${this._error}</p>` : nothing} ${this.clean ? nothing : this.renderEnergy()} ${this.renderHologram()} ${this.clean ? nothing : this.renderLegend()}
-      ${this.renderClock()} ${this.renderAlerts()} ${this.clean || this._walk ? nothing : html`${this.renderHousehold()} ${this.renderThumbs()} ${this.renderScenes()} ${this.renderFind()} ${this.renderCentral()}`} ${this.clean ? nothing : this.renderWalk()} ${this.renderSwipe()} ${this.renderInfo()} ${this.renderBinInfo()} ${this.renderGangMenu()} ${this.renderThrough()} ${this.renderCameraWall()} ${this.renderSheet()} ${this.renderSettings()} ${this.renderNote()}
+      ${this.renderClock()} ${this.renderAlerts()} ${this.renderSecurityStatus()} ${this.clean || this._walk ? nothing : html`${this.renderHousehold()} ${this.renderThumbs()} ${this.renderScenes()} ${this.renderFind()} ${this.renderCentral()}`} ${this.clean ? nothing : this.renderWalk()} ${this.renderSwipe()} ${this.renderInfo()} ${this.renderBinInfo()} ${this.renderGangMenu()} ${this.renderThrough()} ${this.renderCameraWall()} ${this.renderSheet()} ${this.renderSettings()} ${this.renderNote()}
       ${this.clean ? nothing : this.renderProHint()} ${this.renderMenu()} ${this.renderEye()}
       ${this.renderMic()}
       ${this._announce ? html`<div class="fp3d-announce" role="status" @click=${() => (this._announce = null)}>📢 ${this._announce}</div>` : nothing}
@@ -6124,6 +6184,78 @@ export class Fp3dView3d extends LitElement {
         align-self: center;
         color: var(--fp3d-muted);
         font-size: 13px;
+      }
+      .fp3d-alert-actionable {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .fp3d-alert-action-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        padding: 2px 7px;
+        border-radius: 8px;
+        background: rgba(255, 59, 79, 0.28);
+        border: 1px solid rgba(255, 59, 79, 0.6);
+        color: #fff;
+        font-size: 11.5px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+      }
+      .fp3d-security-badge {
+        position: absolute;
+        top: 10px;
+        right: 12px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 12px;
+        border-radius: 12px;
+        background: var(--fp3d-chrome);
+        color: var(--fp3d-text);
+        box-shadow: var(--fp3d-shadow);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        font: 600 12.5px var(--fp3d-font);
+        cursor: pointer;
+        z-index: 4;
+        backdrop-filter: blur(8px);
+        transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+      }
+      .fp3d-security-badge:hover {
+        transform: translateY(-1px);
+        filter: brightness(1.15);
+      }
+      .fp3d-security-disarmed {
+        border-left: 3px solid #38d9a9;
+      }
+      .fp3d-security-armed_home,
+      .fp3d-security-armed_night {
+        border-left: 3px solid #4dabf7;
+      }
+      .fp3d-security-armed_away,
+      .fp3d-security-armed_vacation {
+        border-left: 3px solid #ffa94d;
+      }
+      .fp3d-security-triggered,
+      .fp3d-security-pending,
+      .fp3d-security-arming {
+        border-left: 3px solid #ff3b4f;
+        background: rgba(255, 59, 79, 0.25);
+        color: #ff6b6b;
+        animation: fp3d-security-glow 1s infinite alternate;
+      }
+      @keyframes fp3d-security-glow {
+        from {
+          box-shadow: 0 0 6px rgba(255, 59, 79, 0.4);
+        }
+        to {
+          box-shadow: 0 0 16px rgba(255, 59, 79, 0.8), 0 0 24px rgba(255, 59, 79, 0.5);
+        }
+      }
+      .fp3d-side-right.fp3d-panel-open .fp3d-security-badge {
+        display: none;
       }
       @keyframes fp3d-alert-pulse {
         50% {

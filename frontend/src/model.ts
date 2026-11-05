@@ -1426,6 +1426,7 @@ export const FURNITURE_TYPES = [
   "mailbox",
   "wall_switch",
   "wall_socket",
+  "alarm_keypad",
   "lamp_fan",
   "wifi_ap",
   "water_heater",
@@ -1443,7 +1444,7 @@ export const FURNITURE_GROUPS: Record<string, FurnitureType[]> = {
   vehicles: ["parking"],
   outdoor: ["awning", "plant_moreia", "plant_podocarpo"],
   household: ["waste_bin", "mailbox"],
-  switches: ["wall_switch", "wall_socket", "wifi_ap", "water_heater"],
+  switches: ["wall_switch", "wall_socket", "alarm_keypad", "wifi_ap", "water_heater"],
 };
 
 /** Energy devices: placed and set up in the Energy tool (stored like furniture, not in the library). */
@@ -1604,6 +1605,8 @@ export function builtinBase(f: Pick<Furniture, "type" | "h"> & { variant?: strin
       return f.variant === "bank" ? 0.75 : f.variant === "pole" || f.variant === "pillar" || f.variant === "parcel" ? 0 : 1.0;
     case "wall_switch":
       return 1.05;
+    case "alarm_keypad":
+      return 1.3;
     case "wall_socket":
       // an outdoor socket sits a little higher
       return f.variant === "outdoor" ? 0.5 : 0.3;
@@ -1780,6 +1783,7 @@ export const FURNITURE_SIZE: Record<FurnitureType, [number, number, number]> = {
   // a single plate; more gangs make it wider (gangPlateWidth)
   wall_switch: [0.085, 0.012, 0.085],
   wall_socket: [0.085, 0.014, 0.085],
+  alarm_keypad: [0.14, 0.024, 0.12],
   // a ceiling access point (a UniFi disc); a standing hot water tank
   wifi_ap: [0.2, 0.2, 0.04],
   water_heater: [0.56, 0.56, 1.5],
