@@ -5379,9 +5379,9 @@ export class FloorplanViewer {
       if (!pin) continue;
       const fv = this.floorMap.get(d.floorId);
       // device markers belong to the floor and room views; the house view only shows floor labels –
-      // except what a camera detects right now and (Haushalt Pro) a bin that goes out or post in the box: those
+      // except what a camera detects right now and (Haushalt Pro) a bin that goes out, post in the box or a thirsty plant: those
       // are worth a pin on the whole house too
-      const alert = d.id.startsWith("detect:") || (d.id.startsWith("hh:") && d.active);
+      const alert = d.id.startsWith("detect:") || (d.id.startsWith("hh:") && d.active) || (d.id.startsWith("plant:") && d.active);
       if (!fv || (house && !alert) || fv.to < 0.99 || fv.o < 0.9 || d.pin === false || this.otherFloor(fv)) {
         this.place(pin, null);
         continue;

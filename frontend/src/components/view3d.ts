@@ -2832,9 +2832,8 @@ export class Fp3dView3d extends LitElement {
           targets.set(f.id, `plant:${f.id}`);
           const info = plantInfo(f, hass);
           if (info?.thirsty) {
-            screens.set(f.id, { color: [1, 0.52, 0.15], level: 0.9, faces: [{ part: "band", color: [1, 0.52, 0.15], level: 0.9 }] });
             const room = floor.rooms.find((r) => r.points.length >= 3 && pointInPolygon([f.x, f.z], r.points));
-            const text = info.pct !== null ? `${Math.round(info.pct)} %` : translate(hass, "plant_thirsty");
+            const text = info.pct !== null ? `${Math.round(info.pct)}%` : translate(hass, "plant_thirsty");
             markers.push({
               id: `plant:${f.id}`,
               floorId: floor.id,
@@ -2842,13 +2841,14 @@ export class Fp3dView3d extends LitElement {
               x: f.x,
               z: f.z,
               y: mountBase(floor, f) + f.h + 0.18,
-              icon: mdiIcon("watering-can-outline"),
+              icon: `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></svg>`,
               name: f.name || furnitureName(hass, f.type),
               text: `💧 ${text}`,
               active: true,
               unavailable: false,
-              glow: { color: [1, 0.5, 0.15], level: 0.8 },
+              glow: { color: [1, 0.55, 0.15], level: 0.9 },
               furnitureId: f.id,
+              show: "always",
               fromFurniture: true,
             });
             today.push({
@@ -3351,14 +3351,11 @@ export class Fp3dView3d extends LitElement {
       return { item: due.days <= 1 ? { icon: out ? "check-circle-outline" : "trash-can-outline", text: `${label}: ${when}`, entity: src, hot: due.glow && !out } : undefined };
     }
     if (f.type !== "mailbox") {
-      // a plant: thirsty – an orange band and a small hologram asking for water
+      // a plant: thirsty
       const thirsty = plantThirsty(f, hass);
-      const orange: [number, number, number] = [1, 0.55, 0.12];
       const name = f.name || furnitureName(hass, f.type);
       if (!thirsty) return null;
-      this.binHolos.push({ id: f.id, floorId: floor.id, x: f.x, z: f.z, y: mountBase(floor, f) + f.h, r: Math.max(f.w, f.d) / 2, name, color: "#ff8c1f", when: translate(hass, "hh_thirsty"), soon: true, days: -1, icon: "plant" });
       return {
-        screen: { color: orange, level: 0.9, faces: [{ part: "band", color: orange, level: 0.9 }] },
         item: { icon: "watering-can-outline", text: translate(hass, "hh_plant", { name }), entity: (f.moisture as string) ?? null, hot: true },
       };
     }
@@ -3735,6 +3732,7 @@ export class Fp3dView3d extends LitElement {
     if (m.lamp || m.model) return false;
     const kind = kindOf(m.id);
     if (kind === "light") return false;
+    if (m.id.startsWith("plant:")) return true;
     if (m.fromFurniture) return (m.power ?? 0) >= 1 || (kind === "media" && m.active) || (!!m.energyDevice && !!m.text);
     return true;
   }
