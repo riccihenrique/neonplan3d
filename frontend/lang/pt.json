@@ -2030,6 +2030,7 @@
  "furn_entity_irrigation": "Válvula / Switch de irrigação",
  "plant_water_now": "Regar agora",
  "plant_watering": "Irrigando...",
+ "plant_mark_watered": "Marcar como regada",
  "plant_thirsty": "Precisa de água",
  "plant_healthy": "Hidratada",
  "furn_group_switches": "Instalações",

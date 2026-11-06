@@ -141,6 +141,19 @@ test("a plant is thirsty: a plant entity's moisture problem, or a sensor below i
   assert.equal(info.irrigationEntity, "switch.rega_jardim");
 });
 
+test("irrigation: a button is pressed, a script started, a switch or valve toggled", async () => {
+  const { irrigationIsButton, triggerIrrigation } = await import("./household.ts");
+  const calls: [string, string, unknown][] = [];
+  const hass = { callService: (d: string, s: string, data: unknown) => (calls.push([d, s, data]), Promise.resolve()) } as unknown as HomeAssistant;
+  assert.equal(irrigationIsButton("button.simple_plant_mark_watered_podocarpo"), true);
+  assert.equal(irrigationIsButton("switch.rega"), false);
+  await triggerIrrigation(hass, "button.simple_plant_mark_watered_podocarpo");
+  await triggerIrrigation(hass, "input_button.regada");
+  await triggerIrrigation(hass, "script.regar_jardim");
+  await triggerIrrigation(hass, "valve.jardim");
+  assert.deepEqual(calls.map(([d, s]) => `${d}.${s}`), ["button.press", "input_button.press", "script.turn_on", "valve.toggle"]);
+});
+
 test("the time left of a program: minutes, seconds, hours, an end time, H:MM", () => {
   const now = Date.parse("2026-10-15T12:00:00Z");
   assert.equal(remainingMinutes(st("sensor.left", "23"), now), 23);

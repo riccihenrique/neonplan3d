@@ -39,7 +39,7 @@ import { carState, type CarState, heatSensorOn, roomClimateValue,
 } from "../devices.ts";
 import { alertColor, alertEntities, alertSources, alertText, findAlerts, isOutage, type Alert, type AlertSources } from "../alerts.ts";
 import { iconPath, iconSvg, mdiIcon } from "../icons.ts";
-import { applianceIdle, binColors, binDue, binNext, binOut, binOutToggleable, binTagsShown, doorsOf, fetchPickups, FinishedMemory, fridgeOpenTooLong, groupTags, hassCountry, isFinishedState, mailboxPost, nextFridgeCheck, plantInfo, plantThirsty, remainingMinutes, remainingText, servicesDue, setHouseholdCountry, wasteCalendars, isPackPlant, type HouseholdItem, type HouseholdTag, type Pickup } from "../household.ts";
+import { applianceIdle, binColors, binDue, binNext, binOut, binOutToggleable, binTagsShown, doorsOf, fetchPickups, FinishedMemory, fridgeOpenTooLong, groupTags, hassCountry, isFinishedState, mailboxPost, nextFridgeCheck, irrigationIsButton, plantInfo, plantThirsty, remainingMinutes, remainingText, servicesDue, setHouseholdCountry, triggerIrrigation, wasteCalendars, isPackPlant, type HouseholdItem, type HouseholdTag, type Pickup } from "../household.ts";
 import { deviceSensors, energySummary, fetchSolarRows, fetchTodayChange, fieldLevels, fieldPowers, findConsumers, flowColor, flowSegments, gridPoint, powerSensorFor, readPower, solarCurvePath, solarDayFromStats, type Consumer, type EnergySummary, type StatRow } from "../energy.ts";
 import { fieldFace, fieldSize, roofFaces, roofWindowRoom } from "../solar.ts";
 import { type CustomButton, type EntityRef, DEFAULT_HOLOGRAM, lockAlong, type PoolPipe, type RoofWindow, type SolarField, uid } from "../model.ts";
@@ -3967,12 +3967,18 @@ export class Fp3dView3d extends LitElement {
     if (!info) return nothing;
     const label = f.name || furnitureName(hass, f.type);
     const irSt = info.irrigationEntity ? hass.states[info.irrigationEntity] : undefined;
-    const isWatering = irSt?.state === "on";
+    // a button (Simple Plant's "mark watered") has no on/off: it is pressed once and the popup closes
+    const isButton = !!info.irrigationEntity && irrigationIsButton(info.irrigationEntity);
+    const isWatering = !isButton && irSt?.state === "on";
 
     const triggerWater = (e: Event) => {
       e.stopPropagation();
-      if (info.irrigationEntity) void toggleEntity(hass, info.irrigationEntity);
+      if (info.irrigationEntity) void triggerIrrigation(hass, info.irrigationEntity);
       clearTimeout(this.plantInfoTimer);
+      if (isButton) {
+        this._plantInfo = null;
+        return;
+      }
       this.plantInfoTimer = setTimeout(() => (this._plantInfo = null), 8000);
     };
 
@@ -3993,7 +3999,7 @@ export class Fp3dView3d extends LitElement {
       <div class="fp3d-plant-actions">
         ${info.irrigationEntity && !this.ro
           ? html`<button class="fp3d-chip fp3d-plant-act ${isWatering ? "fp3d-watering-on" : ""}" @click=${triggerWater}>
-              ${isWatering ? "💧 " + translate(hass, "plant_watering") : "🚿 " + translate(hass, "plant_water_now")}
+              ${isButton ? "✅ " + translate(hass, "plant_mark_watered") : isWatering ? "💧 " + translate(hass, "plant_watering") : "🚿 " + translate(hass, "plant_water_now")}
             </button>`
           : nothing}
         <button class="fp3d-chip fp3d-plant-sub-btn" title=${translate(hass, "details")} @click=${openSensor}>ⓘ</button>

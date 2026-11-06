@@ -589,6 +589,19 @@ export function plantInfo(
   };
 }
 
+/** Whether the irrigation entity is a one-shot button (Simple Plant's "mark watered", an input_button). */
+export function irrigationIsButton(entityId: string): boolean {
+  return entityId.startsWith("button.") || entityId.startsWith("input_button.");
+}
+
+/** Triggers a plant's irrigation: buttons are pressed, scripts started, switches and valves toggled. */
+export function triggerIrrigation(hass: HomeAssistant, entityId: string): Promise<unknown> {
+  const domain = entityId.slice(0, entityId.indexOf("."));
+  if (irrigationIsButton(entityId)) return hass.callService(domain, "press", { entity_id: entityId });
+  if (domain === "script") return hass.callService("script", "turn_on", { entity_id: entityId });
+  return hass.callService(domain, "toggle", { entity_id: entityId });
+}
+
 /** Minutes left of a program: a number (minutes, or with its unit s/h), an end time (timestamp) or "H:MM(:SS)". */
 export function remainingMinutes(st: HassEntity | undefined, now = Date.now()): number | null {
   if (!st || st.state === "unavailable" || st.state === "unknown") return null;

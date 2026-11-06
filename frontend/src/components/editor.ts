@@ -12175,7 +12175,7 @@ export class Fp3dEditor extends LitElement {
       ${plant
         ? html`${this.entitySelect(this.t("furn_entity_moisture"), f.moisture ?? null, undefined, this.entityOptions((id) => /^(plant|sensor|binary_sensor|input_boolean)\./.test(id)), (v) => this.updateFurniture({ moisture: ref(v) }))}
             ${this.num(this.t("hh_moisture_min"), f.moisture_min ?? 20, (v) => this.updateFurniture({ moisture_min: Math.max(0, Math.min(100, Math.round(v))) }), 1)}
-            ${this.entitySelect(this.t("furn_entity_irrigation"), f.irrigation ?? null, undefined, this.entityOptions((id) => /^(switch|valve|input_boolean)\./.test(id)), (v) => this.updateFurniture({ irrigation: ref(v) }))}`
+            ${this.entitySelect(this.t("furn_entity_irrigation"), f.irrigation ?? null, undefined, this.entityOptions((id) => /^(switch|valve|input_boolean|button|input_button|script)\./.test(id)), (v) => this.updateFurniture({ irrigation: ref(v) }))}`
         : nothing}
       ${appliance
         ? html`${this.entitySelect(this.t("hh_remaining"), f.remaining ?? null, undefined, sensors, (v) => this.updateFurniture({ remaining: ref(v) }))}
