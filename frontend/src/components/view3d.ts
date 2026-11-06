@@ -39,7 +39,7 @@ import { carState, type CarState, heatSensorOn, roomClimateValue,
 } from "../devices.ts";
 import { alertColor, alertEntities, alertSources, alertText, findAlerts, isOutage, type Alert, type AlertSources } from "../alerts.ts";
 import { iconPath, iconSvg, mdiIcon } from "../icons.ts";
-import { applianceIdle, binColors, binDue, binNext, binOut, binOutToggleable, binTagsShown, doorsOf, fetchPickups, FinishedMemory, fridgeOpenTooLong, groupTags, hassCountry, isFinishedState, mailboxPost, nextFridgeCheck, plantThirsty, remainingMinutes, remainingText, servicesDue, setHouseholdCountry, wasteCalendars, isPackPlant, type HouseholdItem, type HouseholdTag, type Pickup } from "../household.ts";
+import { applianceIdle, binColors, binDue, binNext, binOut, binOutToggleable, binTagsShown, doorsOf, fetchPickups, FinishedMemory, fridgeOpenTooLong, groupTags, hassCountry, isFinishedState, mailboxPost, nextFridgeCheck, plantInfo, plantThirsty, remainingMinutes, remainingText, servicesDue, setHouseholdCountry, wasteCalendars, isPackPlant, type HouseholdItem, type HouseholdTag, type Pickup } from "../household.ts";
 import { deviceSensors, energySummary, fetchSolarRows, fetchTodayChange, fieldLevels, fieldPowers, findConsumers, flowColor, flowSegments, gridPoint, powerSensorFor, readPower, solarCurvePath, solarDayFromStats, type Consumer, type EnergySummary, type StatRow } from "../energy.ts";
 import { fieldFace, fieldSize, roofFaces, roofWindowRoom } from "../solar.ts";
 import { type CustomButton, type EntityRef, DEFAULT_HOLOGRAM, lockAlong, type PoolPipe, type RoofWindow, type SolarField, uid } from "../model.ts";
@@ -347,6 +347,7 @@ export class Fp3dView3d extends LitElement {
     _household: { state: true },
     _hhFolded: { state: true },
     _binInfo: { state: true },
+    _plantInfo: { state: true },
     _gangMenu: { state: true },
     householdCard: { attribute: false },
     _sceneFired: { state: true },
@@ -550,6 +551,9 @@ export class Fp3dView3d extends LitElement {
   private declare _hhFolded: boolean;
   /** Haushalt Pro: the bin tapped – its next pickups in a small pop-up. */
   private declare _binInfo: { furnitureId: string; x: number; y: number } | null;
+  /** Plant tapped: soil moisture, watering switch and details. */
+  private declare _plantInfo: { furnitureId: string; x: number; y: number } | null;
+  private plantInfoTimer: ReturnType<typeof setTimeout> | undefined;
   /** A wall switch or socket with several gangs: its small menu (one button per gang). */
   private declare _gangMenu: { furnitureId: string; x: number; y: number } | null;
   private binInfoTimer: ReturnType<typeof setTimeout> | undefined;
@@ -777,6 +781,7 @@ export class Fp3dView3d extends LitElement {
     this._household = [];
     this._hhFolded = readFlag("neonplan3d.hhFolded");
     this._binInfo = null;
+    this._plantInfo = null;
     this._gangMenu = null;
     this.householdCard = true;
     this.scenes = true;
@@ -2823,15 +2828,47 @@ export class Fp3dView3d extends LitElement {
         // Haushalt Pro: a bin glows the evening before its pickup, a mailbox while post lies in it, a plant while it
         // is thirsty
         const plant = (f.type === "plant" || f.type.startsWith("plant_") || isPackPlant(f.type)) && !!f.moisture && f.moisture !== "none";
-        if (f.type === "waste_bin" || f.type === "mailbox" || plant) {
+        if (plant) {
+          targets.set(f.id, `plant:${f.id}`);
+          const info = plantInfo(f, hass);
+          if (info?.thirsty) {
+            screens.set(f.id, { color: [1, 0.52, 0.15], level: 0.9, faces: [{ part: "band", color: [1, 0.52, 0.15], level: 0.9 }] });
+            const room = floor.rooms.find((r) => r.points.length >= 3 && pointInPolygon([f.x, f.z], r.points));
+            const text = info.pct !== null ? `${Math.round(info.pct)} %` : translate(hass, "plant_thirsty");
+            markers.push({
+              id: `plant:${f.id}`,
+              floorId: floor.id,
+              roomId: room?.id ?? null,
+              x: f.x,
+              z: f.z,
+              y: mountBase(floor, f) + f.h + 0.18,
+              icon: mdiIcon("watering-can-outline"),
+              name: f.name || furnitureName(hass, f.type),
+              text: `💧 ${text}`,
+              active: true,
+              unavailable: false,
+              glow: { color: [1, 0.5, 0.15], level: 0.8 },
+              furnitureId: f.id,
+              fromFurniture: true,
+            });
+            today.push({
+              icon: "watering-can-outline",
+              text: translate(hass, "hh_plant", { name: f.name || furnitureName(hass, f.type) }),
+              entity: (f.moisture as string) ?? null,
+              hot: true,
+            });
+          }
+          continue;
+        }
+        if (f.type === "waste_bin" || f.type === "mailbox") {
           const hh = household ? this.householdState(hass, floor, f) : null;
           if (hh?.screen) screens.set(f.id, hh.screen);
           if (hh?.marker) markers.push(hh.marker);
-          // a tap on the bin itself shows its next pickups (on the mailbox or the plant: their sensor)
-          const src = f.type === "waste_bin" ? f.bin_source : f.type === "mailbox" ? f.entity : f.moisture;
+          // a tap on the bin itself shows its next pickups (on the mailbox: its sensor)
+          const src = f.type === "waste_bin" ? f.bin_source : f.entity;
           if (household && typeof src === "string" && src !== "none") targets.set(f.id, `hh:${src}#${f.id}`);
           if (hh?.item) today.push(hh.item);
-          if (!plant) continue;
+          continue;
         }
         if (household) {
           // a consumable or service due (a filter, salt): a yellow glow on the item
@@ -3902,6 +3939,65 @@ export class Fp3dView3d extends LitElement {
         : out
           ? html`<small>${translate(hass, "bin_out_done")}</small>`
           : nothing}
+    </div>`;
+  }
+
+  private onPlantTap(furnitureId: string, x = 0, y = 0): void {
+    const f = this.building?.floors.flatMap((fl) => fl.furniture).find((m) => m.id === furnitureId);
+    if (!f || !this.hass) return;
+    const info = plantInfo(f, this.hass);
+    if (!info) return;
+    if (info.irrigationEntity) {
+      this._plantInfo = { furnitureId, x, y };
+      clearTimeout(this.plantInfoTimer);
+      this.plantInfoTimer = setTimeout(() => (this._plantInfo = null), 8000);
+    } else {
+      if (this.ro) this.showInfo(info.entity, x, y);
+      else openMoreInfo(this, info.entity);
+    }
+  }
+
+  /** Plant tapped: shows soil moisture status, irrigation trigger, and details link. */
+  private renderPlantInfo() {
+    const i = this._plantInfo;
+    const hass = this.hass;
+    const f = i && this.building?.floors.flatMap((x) => x.furniture).find((m) => m.id === i.furnitureId);
+    if (!i || !hass || !f) return nothing;
+    const info = plantInfo(f, hass);
+    if (!info) return nothing;
+    const label = f.name || furnitureName(hass, f.type);
+    const irSt = info.irrigationEntity ? hass.states[info.irrigationEntity] : undefined;
+    const isWatering = irSt?.state === "on";
+
+    const triggerWater = (e: Event) => {
+      e.stopPropagation();
+      if (info.irrigationEntity) void toggleEntity(hass, info.irrigationEntity);
+      clearTimeout(this.plantInfoTimer);
+      this.plantInfoTimer = setTimeout(() => (this._plantInfo = null), 8000);
+    };
+
+    const openSensor = (e: Event) => {
+      e.stopPropagation();
+      this._plantInfo = null;
+      if (this.ro) this.showInfo(info.entity, i.x, i.y);
+      else openMoreInfo(this, info.entity);
+    };
+
+    return html`<div class="fp3d-swipe fp3d-info fp3d-plant-info" style="left:${i.x}px;top:${i.y}px" @click=${() => (this._plantInfo = null)}>
+      <span class="fp3d-plant-title">🌿 ${label}</span>
+      <div class="fp3d-plant-status ${info.thirsty ? "fp3d-plant-thirsty" : "fp3d-plant-healthy"}">
+        <span>${info.thirsty ? "💧 " + translate(hass, "plant_thirsty") : "🌱 " + translate(hass, "plant_healthy")}</span>
+        ${info.pct !== null ? html`<b>${Math.round(info.pct)}%</b>` : nothing}
+      </div>
+      ${info.battery !== null ? html`<small class="fp3d-plant-sub">🔋 ${Math.round(info.battery)}%</small>` : nothing}
+      <div class="fp3d-plant-actions">
+        ${info.irrigationEntity && !this.ro
+          ? html`<button class="fp3d-chip fp3d-plant-act ${isWatering ? "fp3d-watering-on" : ""}" @click=${triggerWater}>
+              ${isWatering ? "💧 " + translate(hass, "plant_watering") : "🚿 " + translate(hass, "plant_water_now")}
+            </button>`
+          : nothing}
+        <button class="fp3d-chip fp3d-plant-sub-btn" title=${translate(hass, "details")} @click=${openSensor}>ⓘ</button>
+      </div>
     </div>`;
   }
 
@@ -5602,6 +5698,12 @@ export class Fp3dView3d extends LitElement {
       }
       return;
     }
+    // a plant tapped: open irrigation quick card or more-info sensor details
+    if (entityId.startsWith("plant:")) {
+      const fid = entityId.slice(6);
+      this.onPlantTap(fid, x, y);
+      return;
+    }
     // Haushalt Pro: a bin shows its next pickups; a mailbox's or a plant's pin opens its sensor
     if (entityId.startsWith("hh:")) {
       const [id, furnitureId] = entityId.slice(3).split("#");
@@ -5832,7 +5934,7 @@ export class Fp3dView3d extends LitElement {
       style=${style}
     >
       ${this._error ? html`<p class="fp3d-error">${this._error}</p>` : nothing} ${this.clean ? nothing : this.renderEnergy()} ${this.renderHologram()} ${this.clean ? nothing : this.renderLegend()}
-      ${this.renderClock()} ${this.renderAlerts()} ${this.clean || this._walk ? nothing : html`${this.renderHousehold()} ${this.renderThumbs()} ${this.renderScenes()} ${this.renderFind()} ${this.renderCentral()}`} ${this.clean ? nothing : this.renderWalk()} ${this.renderSwipe()} ${this.renderInfo()} ${this.renderBinInfo()} ${this.renderGangMenu()} ${this.renderThrough()} ${this.renderCameraWall()} ${this.renderSheet()} ${this.renderSettings()} ${this.renderNote()}
+      ${this.renderClock()} ${this.renderAlerts()} ${this.clean || this._walk ? nothing : html`${this.renderHousehold()} ${this.renderThumbs()} ${this.renderScenes()} ${this.renderFind()} ${this.renderCentral()}`} ${this.clean ? nothing : this.renderWalk()} ${this.renderSwipe()} ${this.renderInfo()} ${this.renderBinInfo()} ${this.renderPlantInfo()} ${this.renderGangMenu()} ${this.renderThrough()} ${this.renderCameraWall()} ${this.renderSheet()} ${this.renderSettings()} ${this.renderNote()}
       ${this.clean ? nothing : this.renderProHint()} ${this.renderMenu()} ${this.renderEye()}
       ${this.renderMic()}
       ${this._announce ? html`<div class="fp3d-announce" role="status" @click=${() => (this._announce = null)}>📢 ${this._announce}</div>` : nothing}
@@ -6049,6 +6151,68 @@ export class Fp3dView3d extends LitElement {
         border-color: #4ddf7a;
         background: rgba(77, 223, 122, 0.16);
         color: #a8ffc2;
+      }
+      .fp3d-swipe.fp3d-plant-info {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        min-width: 170px;
+        cursor: pointer;
+        pointer-events: auto;
+      }
+      .fp3d-plant-title {
+        font-weight: 600;
+        font-size: 13.5px;
+      }
+      .fp3d-plant-status {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        font-size: 12.5px;
+        padding: 4px 8px;
+        border-radius: 8px;
+      }
+      .fp3d-plant-thirsty {
+        background: rgba(255, 140, 31, 0.18);
+        color: #ff9933;
+        font-weight: 600;
+      }
+      .fp3d-plant-healthy {
+        background: rgba(56, 217, 169, 0.16);
+        color: #38d9a9;
+        font-weight: 500;
+      }
+      .fp3d-plant-sub {
+        opacity: 0.75;
+        font-size: 11.5px;
+      }
+      .fp3d-plant-actions {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 4px;
+      }
+      .fp3d-plant-act {
+        flex: 1;
+        font-weight: 600;
+        font-size: 12px;
+        padding: 5px 12px;
+        border-radius: 999px;
+        background: #0284c7;
+        color: #ffffff;
+        cursor: pointer;
+        border: none;
+      }
+      .fp3d-watering-on {
+        background: #0284c7 !important;
+        color: #ffffff !important;
+        animation: fp3d-sec-pulse 1s infinite alternate;
+      }
+      .fp3d-plant-sub-btn {
+        padding: 5px 9px;
+        font-size: 12px;
+        cursor: pointer;
       }
       .fp3d-hh {
         position: absolute;

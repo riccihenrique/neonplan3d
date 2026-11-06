@@ -988,6 +988,6 @@ test("findAlarmEntity discovers alarm from keypad, placements or hass states", a
 
   // 3. furnitureEntities links alarm_keypad with automatic discovery
   const unlinkedKeypad = { id: "ak2", type: "alarm_keypad", x: 1, z: 1, rotation: 0, w: 0.14, d: 0.024, h: 0.12, variant: null, entity: null, power: null };
-  const links = furnitureEntities(hass, [{ ...floorEmpty, furniture: [unlinkedKeypad] }]);
+  const links = furnitureEntities(hass, [{ ...floorEmpty, furniture: [unlinkedKeypad] } as never]);
   assert.equal(links.get("ak2")?.entity, "alarm_control_panel.alarme_residencia");
 });

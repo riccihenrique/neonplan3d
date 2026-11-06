@@ -12163,7 +12163,7 @@ export class Fp3dEditor extends LitElement {
     const fridge = f.type === "fridge" || f.type === "fridge_smart";
     const electric = isElectric(f.type);
     if (!plant && !electric) return nothing;
-    if (!hasFeature("household")) return nothing;
+    if (!plant && !hasFeature("household")) return nothing;
     void appliance;
     void fridge;
     const sensors = this.entityOptions((id) => id.startsWith("sensor."));
@@ -12171,10 +12171,11 @@ export class Fp3dEditor extends LitElement {
     const services = this.entityOptions((id) => ["sensor.", "binary_sensor.", "input_boolean.", "input_datetime.", "input_number."].some((d) => id.startsWith(d)));
     const ref = (v: string | null) => (v === "none" ? null : v);
     return html`<div class="fp3d-form fp3d-links">
-      <p class="fp3d-sub fp3d-wide"><b>🏠 ${this.t("pro_name_household")}</b></p>
+      <p class="fp3d-sub fp3d-wide"><b>🏠 ${plant ? "🌿 " + this.t("furn_entity_moisture") : this.t("pro_name_household")}</b></p>
       ${plant
-        ? html`${this.entitySelect(this.t("hh_moisture"), f.moisture ?? null, undefined, this.entityOptions((id) => id.startsWith("plant.") || id.startsWith("sensor.")), (v) => this.updateFurniture({ moisture: ref(v) }))}
-            ${this.num(this.t("hh_moisture_min"), f.moisture_min ?? 20, (v) => this.updateFurniture({ moisture_min: Math.max(0, Math.min(100, Math.round(v))) }), 1)}`
+        ? html`${this.entitySelect(this.t("furn_entity_moisture"), f.moisture ?? null, undefined, this.entityOptions((id) => /^(plant|sensor|binary_sensor|input_boolean)\./.test(id)), (v) => this.updateFurniture({ moisture: ref(v) }))}
+            ${this.num(this.t("hh_moisture_min"), f.moisture_min ?? 20, (v) => this.updateFurniture({ moisture_min: Math.max(0, Math.min(100, Math.round(v))) }), 1)}
+            ${this.entitySelect(this.t("furn_entity_irrigation"), f.irrigation ?? null, undefined, this.entityOptions((id) => /^(switch|valve|input_boolean)\./.test(id)), (v) => this.updateFurniture({ irrigation: ref(v) }))}`
         : nothing}
       ${appliance
         ? html`${this.entitySelect(this.t("hh_remaining"), f.remaining ?? null, undefined, sensors, (v) => this.updateFurniture({ remaining: ref(v) }))}

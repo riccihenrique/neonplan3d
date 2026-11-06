@@ -235,6 +235,8 @@ export interface Furniture {
   moisture?: EntityRef;
   /** Haushalt Pro, plant: the moisture (%) below which it is thirsty (null = 20). */
   moisture_min?: number | null;
+  /** Plant: irrigation switch or valve (switch.*, valve.*, input_boolean.*). */
+  irrigation?: EntityRef;
   /** Haushalt Pro, washer, dryer, dishwasher: the time left (minutes, an end time or "H:MM"). */
   remaining?: EntityRef;
   /** Radiator: a sensor that says whether it heats (a valve's work state, an opening percentage) when the thermostat does not (D637). */

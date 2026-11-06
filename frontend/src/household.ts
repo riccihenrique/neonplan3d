@@ -10,6 +10,7 @@
 import type { EntityRef, Furniture } from "./model.ts";
 import type { HassEntity, HomeAssistant } from "./types.ts";
 import { packItem } from "./packs.ts";
+import { translate } from "./i18n.ts";
 
 /** A line of the glass card "Today in the household": an icon (mdi name), its text, the entity a tap opens. */
 export interface HouseholdItem {
@@ -474,22 +475,118 @@ const num = (st: HassEntity | undefined): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
+const THIRSTY_STATES = new Set([
+  "problem",
+  "low",
+  "dry",
+  "thirsty",
+  "needs_water",
+  "precisa_agua",
+  "regar",
+  "seco",
+  "seca",
+]);
+
 /**
- * Whether a plant is thirsty: a plant.* entity reporting a moisture problem (the core plant integration's `problem`
- * attribute, the Plant Monitor's `moisture_status`), or a moisture sensor below its minimum (null: 20 %).
+ * Whether a plant is thirsty:
+ * - a plant.* entity reporting a moisture problem (attributes `problem` or `moisture_status`)
+ * - a binary_sensor / problem sensor in state "problem" or "on"
+ * - a sensor whose state or problem attribute indicates dry / low / thirsty / regar
+ * - a numeric soil moisture sensor below its minimum (default: 20%)
+ * - an input_boolean in state "on"
  */
 export function plantThirsty(f: Pick<Furniture, "moisture" | "moisture_min">, hass: HomeAssistant): boolean {
   const id = typeof f.moisture === "string" && f.moisture !== "none" ? f.moisture : null;
   const st = id ? hass.states[id] : undefined;
   if (!id || !st) return false;
+  if (st.state === "unavailable" || st.state === "unknown") return false;
+
+  const stateStr = String(st.state).toLowerCase();
+  const a = (st.attributes ?? {}) as Record<string, unknown>;
+
+  // 1. Core or custom plant.* entity
   if (id.startsWith("plant.")) {
-    const a = st.attributes as Record<string, unknown>;
     const problem = String(a.problem ?? "").toLowerCase();
     const status = String(a.moisture_status ?? "").toLowerCase();
-    return status === "low" || (st.state === "problem" && problem.includes("moisture") && !problem.includes("high"));
+    return status === "low" || (stateStr === "problem" && problem.includes("moisture") && !problem.includes("high"));
   }
+
+  // 2. Binary sensor or problem sensor
+  if (id.startsWith("binary_sensor.") || a.device_class === "problem") {
+    if (stateStr === "problem") return true;
+    if (stateStr === "on") {
+      const dc = String(a.device_class ?? "").toLowerCase();
+      if (dc === "problem") return true;
+      const key = `${id} ${String(a.friendly_name ?? "")}`.toLowerCase();
+      if (/problem|problema|dry|seco|seca|thirsty|sede|regar|rega|water|moisture/.test(key)) return true;
+      return true;
+    }
+    return false;
+  }
+
+  // 3. Known text states (e.g. state is "problem", "low", "dry", "thirsty", "needs_water")
+  if (THIRSTY_STATES.has(stateStr)) return true;
+
+  // 4. Problem in attributes
+  if (a.problem) {
+    const prob = String(a.problem).toLowerCase();
+    if (/moisture|water|agua|água|dry|seco|seca|low|baixa|sede|regar|rega/.test(prob)) return true;
+  }
+  if (a.moisture_status && String(a.moisture_status).toLowerCase() === "low") return true;
+
+  // 5. Numeric soil moisture percentage
+  const min = f.moisture_min ?? 20;
   const v = num(st);
-  return v !== null && v < (f.moisture_min ?? 20);
+  if (v !== null) return v < min;
+  if (typeof a.moisture === "number") return a.moisture < min;
+
+  // 6. Input boolean: on = needs water
+  if (id.startsWith("input_boolean.") && stateStr === "on") return true;
+
+  return false;
+}
+
+export interface PlantInfo {
+  thirsty: boolean;
+  pct: number | null;
+  statusText: string;
+  entity: string;
+  irrigationEntity: string | null;
+  battery: number | null;
+}
+
+/** Detailed plant status: moisture level, battery, thirsty state, and optional irrigation entity. */
+export function plantInfo(
+  f: Pick<Furniture, "name" | "type" | "moisture" | "moisture_min" | "irrigation">,
+  hass: HomeAssistant,
+): PlantInfo | null {
+  const id = typeof f.moisture === "string" && f.moisture !== "none" ? f.moisture : null;
+  const st = id ? hass.states[id] : undefined;
+  if (!id || !st) return null;
+  const thirsty = plantThirsty(f, hass);
+
+  let pct: number | null = num(st);
+  if (pct === null && typeof st.attributes?.moisture === "number") {
+    pct = st.attributes.moisture as number;
+  }
+
+  let battery: number | null = null;
+  if (typeof st.attributes?.battery === "number") battery = st.attributes.battery as number;
+  else if (typeof st.attributes?.battery_level === "number") battery = st.attributes.battery_level as number;
+
+  const irrigationEntity =
+    typeof f.irrigation === "string" && f.irrigation !== "none" && hass.states[f.irrigation] ? f.irrigation : null;
+
+  const statusText = pct !== null ? `${Math.round(pct)}%` : thirsty ? translate(hass, "plant_thirsty") : translate(hass, "plant_healthy");
+
+  return {
+    thirsty,
+    pct,
+    statusText,
+    entity: id,
+    irrigationEntity,
+    battery,
+  };
 }
 
 /** Minutes left of a program: a number (minutes, or with its unit s/h), an end time (timestamp) or "H:MM(:SS)". */
@@ -628,5 +725,5 @@ export class FinishedMemory {
 
 /** The household's entity fields of part 2, for the watched list. */
 export function householdExtras(f: Furniture): EntityRef[] {
-  return [f.moisture ?? null, f.remaining ?? null, f.service ?? null, f.service2 ?? null];
+  return [f.moisture ?? null, f.irrigation ?? null, f.remaining ?? null, f.service ?? null, f.service2 ?? null];
 }

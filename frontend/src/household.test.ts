@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { applianceIdle, binColors, binDue, binGlows, binNext, binOut, binOutToggleable, binTagsShown, FinishedMemory, fridgeOpenTooLong, groupTags, householdEntities, isFinishedState, mailboxBase, mailboxPost, nextFridgeCheck, pickupsOf, plantThirsty, remainingMinutes, remainingText, sensorDays, serviceDue, servicesDue, wasteCalendars, wasteColors, wasteMatches, type HouseholdTag } from "./household.ts";
+import { applianceIdle, binColors, binDue, binGlows, binNext, binOut, binOutToggleable, binTagsShown, FinishedMemory, fridgeOpenTooLong, groupTags, householdEntities, isFinishedState, mailboxBase, mailboxPost, nextFridgeCheck, pickupsOf, plantInfo, plantThirsty, remainingMinutes, remainingText, sensorDays, serviceDue, servicesDue, wasteCalendars, wasteColors, wasteMatches, type HouseholdTag } from "./household.ts";
 import type { Furniture } from "./model.ts";
 import type { HassEntity, HomeAssistant } from "./types.ts";
 
@@ -114,6 +114,31 @@ test("a plant is thirsty: a plant entity's moisture problem, or a sensor below i
   assert.equal(plantThirsty({ moisture: "sensor.soil" }, hassOf(st("sensor.soil", "12"))), true);
   assert.equal(plantThirsty({ moisture: "sensor.soil", moisture_min: 10 }, hassOf(st("sensor.soil", "12"))), false);
   assert.equal(plantThirsty({ moisture: "none" }, hassOf()), false);
+
+  // Binary problem sensor
+  assert.equal(plantThirsty({ moisture: "binary_sensor.planta_problema" }, hassOf(st("binary_sensor.planta_problema", "on", { device_class: "problem" }))), true);
+  assert.equal(plantThirsty({ moisture: "binary_sensor.planta_problema" }, hassOf(st("binary_sensor.planta_problema", "off", { device_class: "problem" }))), false);
+
+  // Sensor with problem / dry state
+  assert.equal(plantThirsty({ moisture: "sensor.jiboia_status" }, hassOf(st("sensor.jiboia_status", "problem"))), true);
+  assert.equal(plantThirsty({ moisture: "sensor.jiboia_status" }, hassOf(st("sensor.jiboia_status", "dry"))), true);
+  assert.equal(plantThirsty({ moisture: "sensor.jiboia_status" }, hassOf(st("sensor.jiboia_status", "ok"))), false);
+
+  // Input boolean helper
+  assert.equal(plantThirsty({ moisture: "input_boolean.regar_jiboia" }, hassOf(st("input_boolean.regar_jiboia", "on"))), true);
+  assert.equal(plantThirsty({ moisture: "input_boolean.regar_jiboia" }, hassOf(st("input_boolean.regar_jiboia", "off"))), false);
+
+  // plantInfo helper
+  const info = plantInfo(
+    { name: "Jibóia", type: "plant_jiboia", moisture: "sensor.soil", moisture_min: 20, irrigation: "switch.rega_jardim" },
+    hassOf(st("sensor.soil", "14", { battery: 85 }), st("switch.rega_jardim", "off")),
+  );
+  assert.ok(info);
+  assert.equal(info.thirsty, true);
+  assert.equal(info.pct, 14);
+  assert.equal(info.statusText, "14%");
+  assert.equal(info.battery, 85);
+  assert.equal(info.irrigationEntity, "switch.rega_jardim");
 });
 
 test("the time left of a program: minutes, seconds, hours, an end time, H:MM", () => {
