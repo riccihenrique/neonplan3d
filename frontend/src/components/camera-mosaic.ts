@@ -656,14 +656,26 @@ export class NpCameraMosaic extends LitElement {
       </div>
       <div class="np-sec-list">
         ${shown.map(
-          (o) => html`<div class="np-sec-row ${o.open ? "warn" : ""}">
+          (o) => html`<div class="np-sec-row ${o.open || (o.lock && !o.lock.locked) ? "warn" : ""}">
             <span class="np-row-icon">${kindIcon(o.kind)}</span>
             <div class="np-row-info">
               <div class="np-row-name">${o.name}</div>
-              <div class="np-row-sub">${o.location ? `${o.location} · ` : ""}${o.open ? lb.open : lb.closed}</div>
+              <div class="np-row-sub">
+                ${o.location ? `${o.location} · ` : ""}${o.open ? lb.open : lb.closed}${o.lock
+                  ? ` · ${o.lock.locked ? `🔒 ${lb.locked}` : `🔓 ${lb.unlocked}`}`
+                  : ""}
+              </div>
             </div>
             ${o.canControl
               ? html`<button class="fp3d-btn np-btn-sm" @click=${() => this.toggleCover(o)}>${o.open ? lb.closeCover : lb.openCover}</button>`
+              : nothing}
+            ${o.lock
+              ? html`<button
+                  class="fp3d-btn np-btn-sm"
+                  @click=${() => this.toggleLock({ entityId: o.lock!.entityId, locked: o.lock!.locked } as SecurityLock)}
+                >
+                  ${o.lock.locked ? lb.unlock : lb.lock}
+                </button>`
               : nothing}
             <button class="np-cam-act" title=${lb.go3d} @click=${(e: Event) => this.jump3d(e, o)}>📍</button>
           </div>`,

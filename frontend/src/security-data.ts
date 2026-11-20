@@ -42,6 +42,7 @@ export interface SecurityOpening {
   open: boolean;
   state: string;
   canControl: boolean;
+  lock?: { entityId: string; locked: boolean } | null;
   location: string | null;
   floorId: string;
   roomId: string | null;
@@ -189,6 +190,8 @@ export function collectSecuritySnapshot(hass: HomeAssistant | undefined, buildin
         if (st && st.state !== "unavailable") {
           seenOpenings.add(primary);
           const cur = openingState(hass, ents, o.type);
+          const lockSt = ents.lock ? hass.states[ents.lock] : undefined;
+          const lock = ents.lock && lockSt && lockSt.state !== "unavailable" ? { entityId: ents.lock, locked: lockSt.state === "locked" } : null;
           openings.push({
             id: o.id,
             entityId: primary,
@@ -197,6 +200,7 @@ export function collectSecuritySnapshot(hass: HomeAssistant | undefined, buildin
             open: cur.open > 0 || cur.open2 > 0 || cur.tilt > 0 || cur.tilt2 > 0,
             state: st.state,
             canControl: primary.startsWith("cover."),
+            lock,
             location: loc,
             floorId: floor.id,
             roomId: roomObj?.id ?? null,
@@ -207,13 +211,16 @@ export function collectSecuritySnapshot(hass: HomeAssistant | undefined, buildin
 
     for (const area of floor.outdoor ?? []) {
       for (const gate of area.gates ?? []) {
-        if (gate.entity && gate.entity.startsWith("lock.")) pushLock(gate.entity, floor, null);
+        const gateLockId = gate.entity && gate.entity.startsWith("lock.") ? gate.entity : null;
+        if (gateLockId) pushLock(gateLockId, floor, null);
         const gateEnt = gate.contact || (gate.entity && !gate.entity.startsWith("lock.") ? gate.entity : null);
         if (gateEnt && !seenOpenings.has(gateEnt)) {
           const st = hass.states[gateEnt];
           if (st && st.state !== "unavailable") {
             seenOpenings.add(gateEnt);
             const isOpen = gateEnt.startsWith("cover.") ? st.state === "open" || st.state === "opening" : st.state === "on";
+            const gateLockSt = gateLockId ? hass.states[gateLockId] : undefined;
+            const lock = gateLockId && gateLockSt && gateLockSt.state !== "unavailable" ? { entityId: gateLockId, locked: gateLockSt.state === "locked" } : null;
             openings.push({
               id: gate.id,
               entityId: gateEnt,
@@ -222,6 +229,7 @@ export function collectSecuritySnapshot(hass: HomeAssistant | undefined, buildin
               open: isOpen,
               state: st.state,
               canControl: gateEnt.startsWith("cover."),
+              lock,
               location: locationLabel(floors.length, floor, null),
               floorId: floor.id,
               roomId: null,
