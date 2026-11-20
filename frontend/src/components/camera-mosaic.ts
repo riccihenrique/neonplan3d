@@ -525,11 +525,16 @@ export class NpCameraMosaic extends LitElement {
   }
 
   private renderFeed(cam: SecurityCamera, lb: Labels) {
-    if (!cam.online) return html`<div class="np-cam-off">${lb.offline}</div>`;
-    if (this._live && cam.streamUrl) {
-      return html`<img src=${cam.streamUrl} alt=${cam.label} loading="lazy" />`;
-    }
-    if (cam.pictureUrl) {
+    const st = this.hass?.states[cam.entityId];
+    if (!cam.online || !st) return html`<div class="np-cam-off">${lb.offline}</div>`;
+    const canHaStream = typeof customElements !== "undefined" && !!customElements.get("ha-camera-stream");
+    if (this._live) {
+      if (canHaStream) {
+        return html`<ha-camera-stream .hass=${this.hass} .stateObj=${st} muted allow-exoplayer></ha-camera-stream>`;
+      }
+      const url = cam.streamUrl ?? cam.pictureUrl;
+      if (url) return html`<img src=${url} alt=${cam.label} />`;
+    } else if (cam.pictureUrl) {
       const sep = cam.pictureUrl.includes("?") ? "&" : "?";
       const ts = this._tick || 1;
       return html`<img src=${`${cam.pictureUrl}${sep}_ts=${ts}`} alt=${cam.label} loading="lazy" />`;
@@ -925,7 +930,8 @@ export class NpCameraMosaic extends LitElement {
         position: relative;
         overflow: hidden;
       }
-      .np-cam-media img {
+      .np-cam-media img,
+      .np-cam-media ha-camera-stream {
         width: 100%;
         height: 100%;
         object-fit: contain;
