@@ -37,6 +37,7 @@ interface Labels {
   armHome: string;
   armAway: string;
   armNight: string;
+  armVacation: string;
   pinPrompt: string;
   pinClear: string;
   pinConfirm: string;
@@ -88,6 +89,7 @@ const LABELS: Record<"pt" | "de" | "en", Labels> = {
     armHome: "Em Casa",
     armAway: "Ausente",
     armNight: "Noite",
+    armVacation: "Férias",
     pinPrompt: "Digite o código PIN",
     pinClear: "Limpar",
     pinConfirm: "Confirmar",
@@ -146,6 +148,7 @@ const LABELS: Record<"pt" | "de" | "en", Labels> = {
     armHome: "Zuhause",
     armAway: "Abwesend",
     armNight: "Nacht",
+    armVacation: "Urlaub",
     pinPrompt: "PIN-Code eingeben",
     pinClear: "Leeren",
     pinConfirm: "OK",
@@ -204,6 +207,7 @@ const LABELS: Record<"pt" | "de" | "en", Labels> = {
     armHome: "Home",
     armAway: "Away",
     armNight: "Night",
+    armVacation: "Vacation",
     pinPrompt: "Enter PIN code",
     pinClear: "Clear",
     pinConfirm: "Confirm",
@@ -256,7 +260,7 @@ interface SecurityEventItem {
   text: string;
 }
 
-type AlarmAction = "alarm_disarm" | "alarm_arm_home" | "alarm_arm_away" | "alarm_arm_night";
+type AlarmAction = "alarm_disarm" | "alarm_arm_home" | "alarm_arm_away" | "alarm_arm_night" | "alarm_arm_vacation";
 
 export class NpCameraMosaic extends LitElement {
   static properties = {
@@ -581,6 +585,9 @@ export class NpCameraMosaic extends LitElement {
           : nothing}
         ${alarm.state !== "armed_night"
           ? html`<button class="fp3d-btn" @click=${() => this.callAlarm(alarm, "alarm_arm_night")}>🌙 ${lb.armNight}</button>`
+          : nothing}
+        ${alarm.state !== "armed_vacation"
+          ? html`<button class="fp3d-btn" @click=${() => this.callAlarm(alarm, "alarm_arm_vacation")}>✈️ ${lb.armVacation}</button>`
           : nothing}
       </div>
       ${this._pinAction
