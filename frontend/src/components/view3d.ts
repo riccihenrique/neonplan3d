@@ -792,7 +792,7 @@ export class Fp3dView3d extends LitElement {
     this.furnish = false;
     this.trail = false;
     this.weather = true;
-    this.sunFx = true;
+    this.sunFx = false;
     this.weatherEntityId = null;
     this._flash = false;
     this._proHint = null;
@@ -1794,7 +1794,7 @@ export class Fp3dView3d extends LitElement {
     // daylight: sun through the windows and a lighter sky
     const sun = hass.states["sun.sun"]?.attributes;
     const elevation = typeof sun?.elevation === "number" ? sun.elevation : null;
-    v.setSun(this.sunFx !== false && elevation !== null && typeof sun?.azimuth === "number" ? { elevation, azimuth: sun.azimuth } : null);
+    v.setSun(elevation !== null && typeof sun?.azimuth === "number" ? { elevation, azimuth: sun.azimuth } : null);
     // the compass ring's letters: the first letter of each direction in the user's language
     const letter = (k: I18nKey) => translate(hass, k).charAt(0).toUpperCase();
     v.setSunPath(this.sunFx === false ? null : this.sunPathToday(hass), [letter("compass_n"), letter("compass_e"), letter("compass_s"), letter("compass_w")], hourCycle(hass));

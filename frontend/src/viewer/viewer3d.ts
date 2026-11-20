@@ -1887,6 +1887,7 @@ export class FloorplanViewer {
     this.sunPath = path;
     if (letters) this.compassLetters = letters;
     if (hours) this.hourCycle = hours;
+    for (const fv of this.floors) this.buildSun(fv);
     this.buildSunFx();
     this.invalidate();
   }
@@ -2123,7 +2124,7 @@ export class FloorplanViewer {
     this.usePalette();
     const b = this.building;
     const sun = this.sun;
-    const on = !!b && !!sun && b.settings.sun_shadow !== false && !this.options.safeFx;
+    const on = !!b && !!sun && !!this.sunPath && b.settings.sun_shadow !== false && !this.options.safeFx;
     const north = (b?.settings.north ?? 0) * DEG;
     const cloud = this.weather?.cloud ?? 0;
     const shade = on && !this.lowQuality && sun.elevation > 1 && cloud < 0.9 && !this.roomTint;
@@ -3968,7 +3969,7 @@ export class FloorplanViewer {
   private buildSun(fv: FloorView): void {
     this.usePalette();
     // the patches of sunlight can be switched off in the settings (#266)
-    const sun = this.building?.settings.sun_patches === false ? null : this.sun;
+    const sun = !this.sunPath || this.building?.settings.sun_patches === false ? null : this.sun;
     const north = (this.building?.settings.north ?? 0) * DEG;
     // clouds take most of the sunlight
     const cloud = this.weather?.cloud ?? 0;
