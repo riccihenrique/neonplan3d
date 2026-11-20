@@ -6,6 +6,13 @@ import { BuildingController } from "./building-controller.ts";
 import { countView } from "./diagnostics.ts";
 import { loadEditor } from "./load-editor.ts";
 import "./components/camera-mosaic.ts";
+import "./components/plan-overview.ts";
+import "./components/plan-picker.ts";
+import { alertText, type Alert } from "./alerts.ts";
+import { planLabel } from "./components/plan-picker.ts";
+import { planSummary } from "./plan-summary.ts";
+import { siteOwner } from "./site.ts";
+import { OtherPlans } from "./plan-watch.ts";
 import "./components/room-bar.ts";
 import "./components/room-panel.ts";
 import "./components/view3d.ts";
@@ -16,7 +23,8 @@ import { controls, tokens } from "./styles.ts";
 import type { HomeAssistant } from "./types.ts";
 import type { MarkerMode } from "./components/view3d.ts";
 import type { HeatMode } from "./heatmap.ts";
-import { THEMES, type Theme } from "./themes.ts";
+import { styleOptions, isStyleChoice } from "./style-select.ts";
+import { setCustomStyles } from "./looks.ts";
 import { keepInRoom, snapToWall } from "./geometry/snap.ts";
 import { furnitureName } from "./furniture-names.ts";
 import { confirmEntities, defaultHeight, entityName, findAlarmEntity, kindOf } from "./devices.ts";
@@ -28,7 +36,7 @@ import { mountLocateLab } from "./locate-lab.ts";
 import { directorOnHere } from "./director.ts";
 import { loadVoice, micProbeDone, screenName, voiceOnHere } from "./load-voice.ts";
 import type { ClockPos } from "./card-config.ts";
-import { getLicense, unseenOffers, unseenUpdates } from "./api.ts";
+import { getLicense, MAIN_PLAN, unseenOffers, unseenUpdates } from "./api.ts";
 import { markPrintSeen, printDot, printSeen } from "./print.ts";
 import { TimeTravel } from "./load-timetravel.ts";
 import type { HistorySpec } from "./timetravel/types.ts";
@@ -74,6 +82,9 @@ export class Floorplan3dPanel extends LitElement {
     _editorReady: { state: true },
     _floorId: { state: true },
     _roomId: { state: true },
+    _walking: { state: true },
+    _overview: { state: true },
+    _site: { state: true },
     _wallMode: { state: true },
     _explode: { state: true },
     _keepRoof: { state: true },
@@ -85,6 +96,9 @@ export class Floorplan3dPanel extends LitElement {
     _pinSize: { state: true },
     _heat: { state: true },
     _theme: { state: true },
+    _zoomStyle: { state: true },
+    _zoomLate: { state: true },
+    _zoomScope: { state: true },
     _clock: { state: true },
     _furnish: { state: true },
     _selFurniture: { state: true },
@@ -131,6 +145,18 @@ export class Floorplan3dPanel extends LitElement {
   private declare _editorReady: boolean;
   private declare _floorId: string | null;
   private declare _roomId: string | null;
+  /** One walks through the house: the room panel steps aside. */
+  private declare _walking: boolean;
+  /** "All floor plans" is open. */
+  private declare _overview: boolean;
+  /** The property: every building standing on it in one 3D view (read only). */
+  private declare _site: boolean;
+  /** The other floor plans, read only: for the overview, their warnings and the property. */
+  private readonly watch = new OtherPlans(this);
+  /** The warnings of the other plans, worked out at most every two seconds (old tablets). */
+  private otherAlerts: { at: number; list: { plan: string; alert: Alert }[] } = { at: 0, list: [] };
+  /** A room to open once a plan switched to has loaded (a warning's "show"). */
+  private pendingRoom: { plan: string; floorId: string | null; roomId: string | null } | null = null;
   private declare _wallMode: WallMode;
   private declare _explode: boolean;
   private declare _keepRoof: boolean;
@@ -145,7 +171,14 @@ export class Floorplan3dPanel extends LitElement {
   /** How large the device symbols are (this device). */
   private declare _pinSize: "small" | "normal" | "large";
   private declare _heat: HeatMode;
-  private declare _theme: Theme | "auto";
+  /** The style of this device: a style, "auto" (Day/Neon by the sun) or "house" (the house's plan). */
+  private declare _theme: string;
+  /** Zoom style (test): the style the house turns into when zoomed in (empty: off). */
+  private declare _zoomStyle: string;
+  /** How late it sets in, 0 (early) … 100 (late). */
+  private declare _zoomLate: number;
+  /** Only the room zoomed into turns ("room") or all rooms ("all"). */
+  private declare _zoomScope: string;
   private declare _clock: ClockPos;
   private declare _furnish: boolean;
   private declare _selFurniture: string | null;
@@ -202,6 +235,11 @@ export class Floorplan3dPanel extends LitElement {
     this._editorReady = !!customElements.get("fp3d-editor");
     this._floorId = null;
     this._roomId = null;
+    this._walking = false;
+    this._overview = false;
+    this._site = new URLSearchParams(location.search).get("plan") === "site";
+    // the floor plan: from a link (?plan=), else the one last shown on this device
+    void this.data.switchPlan(new URLSearchParams(location.search).get("plan") ?? prefs.get("plan"));
     // the wall view stays as it was last set on this device (#309)
     this._wallMode = prefs.get("walls") === "cut" ? "cut" : "auto";
     this._explode = prefs.get("explode") !== "0";
@@ -218,8 +256,12 @@ export class Floorplan3dPanel extends LitElement {
     this._pinSize = pinSize === "small" || pinSize === "large" ? pinSize : "normal";
     const heat = prefs.get("heat");
     this._heat = heat === "temperature" || heat === "humidity" || heat === "co2" || heat === "values" ? heat : "none";
-    const theme = prefs.get("theme") as Theme | "auto" | null;
-    this._theme = theme === "auto" || (theme && THEMES.includes(theme)) ? theme : "neon";
+    const theme = prefs.get("theme");
+    this._theme = isStyleChoice(theme) ? theme : "neon";
+    this._zoomStyle = prefs.get("zoom_style") ?? "";
+    const late = Number(prefs.get("zoom_late"));
+    this._zoomLate = Number.isFinite(late) && prefs.get("zoom_late") !== null ? Math.min(100, Math.max(0, late)) : 50;
+    this._zoomScope = prefs.get("zoom_scope") === "room" ? "room" : "all";
     const clock = prefs.get("clock");
     this._clock = clock === "tl" || clock === "tr" || clock === "bl" || clock === "br" ? clock : "off";
     const accent = prefs.get("accent");
@@ -280,6 +322,16 @@ export class Floorplan3dPanel extends LitElement {
 
   private onRoomTap(e: CustomEvent<{ floorId: string; roomId: string | null }>): void {
     const { floorId, roomId } = e.detail;
+    // the property: a tap on a building's room flies into its plan, there into the room
+    if (this._site) {
+      if (!roomId) return;
+      const owner = siteOwner(roomId, MAIN_PLAN);
+      this.pendingRoom = { plan: owner.plan, floorId: null, roomId: owner.id };
+      this._site = false;
+      if (owner.plan === this.data.planId) this.requestUpdate();
+      else this.pickPlan(owner.plan);
+      return;
+    }
     // in the house view (or on another floor) a tap first opens the whole floor; rooms come next
     if ((this.data.building?.floors.length ?? 0) > 1 && floorId && this._floorId !== floorId) {
       this._floorId = floorId;
@@ -518,19 +570,76 @@ export class Floorplan3dPanel extends LitElement {
    * To the editor with a topic of ⚙ Settings open: the extensions page's fun packs button, the dashboard card dialog's
    * link to a card template (the editor may still be loading).
    */
-  private openFunSettings(topic: "fun" | "cards" = "fun", template: string | null = null): void {
+  private openFunSettings(topic: "fun" | "cards" | "plans" = "fun", template: string | null = null): void {
     this.setMode("editor");
     let tries = 0;
     const open = () => {
-      const ed = this.renderRoot.querySelector("fp3d-editor") as (HTMLElement & { openSettings?(topic: "fun" | "cards", template?: string | null): void }) | null;
+      const ed = this.renderRoot.querySelector("fp3d-editor") as (HTMLElement & { openSettings?(topic: "fun" | "cards" | "plans", template?: string | null): void }) | null;
       if (ed?.openSettings) ed.openSettings(topic, template);
       else if (tries++ < 60) setTimeout(open, 100);
     };
     void this.updateComplete.then(open);
   }
 
+  /** The property as one building (null until every plan on it is loaded). */
+  private siteBuilding(): Building | null {
+    return this.watch.site(this.data);
+  }
+
+  /** To the property view: the buildings together, from above. */
+  private showSite(): void {
+    if (this.tt.active) this.tt.stop();
+    this._site = true;
+    this._floorId = null;
+    this._roomId = null;
+    this._mode = "view";
+  }
+
+  /** Every plan's building: the one shown from the controller, the others as watched. */
+  private planBuildings(): Map<string, Building> {
+    return this.watch.all(this.data);
+  }
+
+  /** The warnings of the plans not shown (recomputed at most every two seconds). */
+  private alertsElsewhere(): { plan: string; alert: Alert }[] {
+    if (!this.hass || this.data.plans.length < 2) return [];
+    const now = Date.now();
+    if (now - this.otherAlerts.at < 2000) return this.otherAlerts.list;
+    const list: { plan: string; alert: Alert }[] = [];
+    for (const [plan, b] of this.watch.others) if (plan !== this.data.planId) for (const alert of planSummary(this.hass, b).alerts) list.push({ plan, alert });
+    this.otherAlerts = { at: now, list };
+    return list;
+  }
+
+  private alertCounts(): Map<string, number> {
+    const counts = new Map<string, number>();
+    for (const { plan } of this.alertsElsewhere()) counts.set(plan, (counts.get(plan) ?? 0) + 1);
+    return counts;
+  }
+
+  /** Show another floor plan: its edits are saved first, the view starts in its house view. */
+  private pickPlan(plan: string): void {
+    if (this._site) {
+      this._site = false;
+      this._floorId = null;
+      this._roomId = null;
+    }
+    if (plan === this.data.planId) return;
+    if (this.tt.active) this.tt.stop();
+    prefs.set("plan", plan);
+    this._floorId = null;
+    this._roomId = null;
+    void this.data.switchPlan(plan);
+  }
+
+  /** A warning of another plan: to that plan, into the room concerned. */
+  private showElsewhere(plan: string, alert: Alert): void {
+    this.pendingRoom = { plan, floorId: alert.floorId, roomId: alert.roomId };
+    this.pickPlan(plan);
+  }
+
   private view3d() {
-    return this.renderRoot.querySelector("fp3d-view3d") as (HTMLElement & { resetView(): void; lookThrough(entityId: string): void; historyEntities(): HistorySpec; proHint(f: Feature): void; currentView(): StartView | null; roomSheets(roomId: string): { id: string; icon: string; title: string }[]; openRoomSheet(roomId: string, id: string): void }) | null;
+    return this.renderRoot.querySelector("fp3d-view3d") as (HTMLElement & { resetView(): void; lookThrough(entityId: string): void; historyEntities(): HistorySpec; proHint(f: Feature): void; currentView(): StartView | null; roomSheets(roomId: string): { id: string; icon: string; title: string }[]; openRoomSheet(roomId: string, id: string): void; walkHere(): void }) | null;
   }
 
   /** Time travel on or off; without the Pro add-on its hint shows. `at`: a start moment from a link. */
@@ -553,6 +662,14 @@ export class Floorplan3dPanel extends LitElement {
   }
 
   protected updated(): void {
+    if (this.data.plans.length > 1) this.watch.watch(this.hass, this.data);
+    // a warning's plan has loaded: into its room
+    const pending = this.pendingRoom;
+    if (pending && this.data.planId === pending.plan && this.data.building) {
+      this.pendingRoom = null;
+      this._floorId = pending.floorId ?? this.data.building.floors.find((f) => zonesOf(f).some((r) => r.id === pending.roomId))?.id ?? null;
+      this._roomId = pending.roomId;
+    }
     // lab: the locating recorder box for admins (feasibility test, not a feature yet)
     if (!this.locateLab && this.hass?.user?.is_admin && this.data.building && labOn()) {
       this.locateLab = mountLocateLab(() => ({ hass: this.hass, building: this.data.building }));
@@ -632,6 +749,7 @@ export class Floorplan3dPanel extends LitElement {
     if (this.hass && !languageReady(this.hass.language)) return nothing;
     this.checkOffers();
     const b = this.data.building;
+    setCustomStyles(b?.settings.styles_custom);
     const saveState = this.data.saveState;
     return html`
       <div class="fp3d-app ${this._clean && this._mode === "view" ? "fp3d-clean" : ""}" style=${this._accent ? `--fp3d-accent:${this._accent}` : ""}>
@@ -639,6 +757,35 @@ export class Floorplan3dPanel extends LitElement {
         ${this._clean && this._mode === "view" ? nothing : html`<header class="fp3d-header">
           <ha-menu-button .hass=${this.hass} .narrow=${this.narrow}></ha-menu-button>
           <h1>NeonPlan 3D</h1>
+          ${this.data.plans.length > 1 || (this.isAdmin && this.data.plans.length > 0)
+            ? html`<fp3d-plan-picker
+                .hass=${this.hass}
+                .plans=${this.data.plans}
+                .current=${this.data.planId}
+                ?admin=${this.isAdmin}
+                @plan-pick=${(e: CustomEvent<{ plan: string }>) => this.pickPlan(e.detail.plan)}
+                .alerts=${this.alertCounts()}
+                @plan-new=${() => this.openFunSettings("plans")}
+                @plan-manage=${() => this.openFunSettings("plans")}
+                @plan-overview=${() => (this._overview = true)}
+                @plan-site=${() => this.showSite()}
+                .site=${this._site}
+                .hasSite=${this.data.plans.some((p) => p.site?.on)}
+              ></fp3d-plan-picker>`
+            : nothing}
+          ${this._overview
+            ? html`<fp3d-plan-overview
+                .hass=${this.hass}
+                .plans=${this.data.plans}
+                .buildings=${this.planBuildings()}
+                .current=${this.data.planId}
+                @plan-pick=${(e: CustomEvent<{ plan: string }>) => {
+                  this._overview = false;
+                  this.pickPlan(e.detail.plan);
+                }}
+                @close=${() => (this._overview = false)}
+              ></fp3d-plan-overview>`
+            : nothing}
           ${this.isAdmin
             ? html`<div class="fp3d-seg" role="tablist">
                 <button role="tab" aria-pressed=${this._mode === "view"} @click=${() => this.setMode("view")}>${this.t("view")}</button>
@@ -671,19 +818,62 @@ export class Floorplan3dPanel extends LitElement {
                   (q) => html`<button aria-pressed=${this._quality === q} @click=${() => this.setQuality(q)}>${this.t(`quality_${q}`)}</button>`,
                 )}
               </div>
-              <div class="fp3d-seg fp3d-quality" role="group" aria-label=${this.t("theme")}>
-                ${[...THEMES, "auto" as const].map(
-                  (t) =>
-                    html`<button
-                      aria-pressed=${this._theme === t}
-                      @click=${() => {
-                        this._theme = t;
-                        prefs.set("theme", t);
-                      }}
-                    >
-                      ${this.t(`theme_${t}`)}
-                    </button>`,
-                )}
+              <div class="fp3d-seg fp3d-quality" role="group" aria-label=${this.t("style")}>
+                <label class="fp3d-style-pick" title=${this.t("style")}>
+                  <span aria-hidden="true">🎨</span>
+                  <select
+                    aria-label=${this.t("style")}
+                    @change=${(e: Event) => {
+                      this._theme = (e.target as HTMLSelectElement).value;
+                      prefs.set("theme", this._theme);
+                    }}
+                  >
+                    ${styleOptions((k) => this.t(k), this._theme, { auto: true, house: true })}
+                  </select>
+                </label>
+                <label class="fp3d-style-pick" title=${this.t("zoom_style_hint")}>
+                  <span aria-hidden="true">🔍</span>
+                  <select
+                    aria-label=${this.t("zoom_style")}
+                    @change=${(e: Event) => {
+                      this._zoomStyle = (e.target as HTMLSelectElement).value;
+                      prefs.set("zoom_style", this._zoomStyle);
+                    }}
+                  >
+                    <option value="" ?selected=${!this._zoomStyle}>${this.t("zoom_style_off")}</option>
+                    ${styleOptions((k) => this.t(k), this._zoomStyle, {})}
+                  </select>
+                </label>
+                ${this._zoomStyle
+                  ? html`<label class="fp3d-style-pick fp3d-zoom-late" title=${this.t("zoom_late_hint")}>
+                      <span>${this.t("zoom_late_early")}</span>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        step="5"
+                        aria-label=${this.t("zoom_late_hint")}
+                        .value=${String(this._zoomLate)}
+                        @input=${(e: Event) => {
+                          this._zoomLate = Number((e.target as HTMLInputElement).value);
+                          prefs.set("zoom_late", String(this._zoomLate));
+                        }}
+                      />
+                      <span>${this.t("zoom_late_late")}</span>
+                    </label>
+                    <label class="fp3d-style-pick" title=${this.t("zoom_scope_hint")}>
+                      <select
+                        aria-label=${this.t("zoom_scope_hint")}
+                        @change=${(e: Event) => {
+                          this._zoomScope = (e.target as HTMLSelectElement).value;
+                          prefs.set("zoom_scope", this._zoomScope);
+                        }}
+                      >
+                        <option value="all" ?selected=${this._zoomScope !== "room"}>${this.t("zoom_scope_all")}</option>
+                        <option value="room" ?selected=${this._zoomScope === "room"}>${this.t("zoom_scope_room")}</option>
+                      </select>
+                    </label>`
+                  : nothing}
                 <label class="fp3d-accent-pick" title=${this.t("accent_hint")}>
                   <input
                     type="color"
@@ -829,7 +1019,7 @@ export class Floorplan3dPanel extends LitElement {
             ? this.renderEditor(b)
             : this._mode === "extensions" && this.isAdmin
               ? this.renderExtensions()
-              : this.renderView(b)
+              : this.renderView(this._site ? (this.siteBuilding() ?? b) : b)
           : nothing}
         ${this.renderGift()}
       </div>
@@ -846,6 +1036,17 @@ export class Floorplan3dPanel extends LitElement {
   private renderNotices() {
     const d = this.data;
     const notices = [];
+    // water in the garden house while the house is shown: the warning comes here, with a way there
+    for (const { plan, alert } of this.alertsElsewhere()) {
+      const b = this.watch.others.get(plan);
+      if (!b) continue;
+      notices.push(
+        html`<div class="fp3d-notice fp3d-notice-error">
+          <span>⚠ ${this.t("plan_alert", { plan: planLabel(this.hass, d.plans, plan), text: alertText(this.hass, b, alert) })}</span>
+          <button class="fp3d-btn" @click=${() => this.showElsewhere(plan, alert)}>${this.t("plan_alert_go")}</button>
+        </div>`,
+      );
+    }
     if (d.needsRestart) {
       // an old bundle in the browser or the companion app: a reload helps, a restart does not
       if (d.versionGap === "frontend")
@@ -864,7 +1065,7 @@ export class Floorplan3dPanel extends LitElement {
       const at = new Date(d.draft.savedAt).toLocaleString(this.hass?.language);
       notices.push(
         html`<div class="fp3d-notice">
-          <span>${this.t("draft_found", { time: at })}</span>
+          <span>${this.t(d.draft.conflict ? "draft_conflict" : "draft_found", { time: at })}</span>
           <button class="fp3d-btn fp3d-primary" @click=${() => d.restoreDraft()}>${this.t("draft_restore")}</button>
           <button class="fp3d-btn" @click=${() => d.discardDraft()}>${this.t("draft_discard")}</button>
         </div>`,
@@ -907,6 +1108,12 @@ export class Floorplan3dPanel extends LitElement {
       class="fp3d-body"
       .hass=${this.hass}
       .building=${b}
+      .planId=${this.data.planId}
+      .plans=${this.data.plans}
+      .trash=${this.data.trash}
+      .locatePlan=${this.data.locatePlan}
+      @plan-pick=${(e: CustomEvent<{ plan: string }>) => this.pickPlan(e.detail.plan)}
+      @plans-changed=${() => void this.data.reloadPlans()}
       .narrow=${this.narrow}
       .packs=${this.data.packs}
       @packs-changed=${() => void this.data.reloadPacks()}
@@ -1034,10 +1241,13 @@ export class Floorplan3dPanel extends LitElement {
       <div class="fp3d-stage-wrap ${this._roomId ? "fp3d-room-open" : ""} ${this._controlsRight ? "fp3d-side-right" : ""} ${tt ? "fp3d-tt" : ""} ${roomBar ? "fp3d-has-bar" : ""}">
         <fp3d-view3d
           class="fp3d-body"
+          @walk-change=${(e: CustomEvent<{ walking: boolean }>) => (this._walking = e.detail.walking)}
           .pivotMark=${this._pinHover}
           .hass=${this.tt.hass(this.hass)}
           .replay=${this.tt.session?.replay ?? null}
           .building=${b}
+          .planId=${this._site ? null : this.data.planId}
+          .noSave=${this._site}
           .packs=${this.data.packs}
           .floorStack=${this._floorStack}
           .roomLabels=${this._roomNames}
@@ -1069,6 +1279,9 @@ export class Floorplan3dPanel extends LitElement {
           .pinSize=${this._pinSize}
           .heatMode=${this._heat}
           .theme=${this._theme}
+          .zoomStyle=${this._zoomStyle}
+          .zoomLate=${this._zoomLate}
+          .zoomScope=${this._zoomScope}
           .clock=${this._clock}
           .accent=${this._accent}
           ?furnish=${this._furnish && !tt}
@@ -1087,8 +1300,10 @@ export class Floorplan3dPanel extends LitElement {
           }}
           @back=${() => this.back()}
         ></fp3d-view3d>
-        ${this._roomId
+        ${this._roomId && !this._walking
           ? html`<fp3d-room-panel
+              ?walk=${true}
+              @walk-here=${() => this.view3d()?.walkHere()}
               class="fp3d-room-panel"
               @camera-look=${(e: CustomEvent<{ entity: string }>) => this.view3d()?.lookThrough(e.detail.entity)}
               .hass=${this.tt.hass(this.hass)}
@@ -1335,6 +1550,9 @@ export class Floorplan3dPanel extends LitElement {
         border-bottom: 1px solid var(--fp3d-line);
         background: var(--fp3d-chrome-solid);
         flex-wrap: wrap;
+        /* the header's menus (the floor plan picker) open over the editor's tool bar and the 3D view below */
+        position: relative;
+        z-index: 30;
       }
       ha-menu-button {
         color: var(--fp3d-text);
@@ -1485,6 +1703,28 @@ export class Floorplan3dPanel extends LitElement {
         min-height: 0;
       }
       /* the colour well beside the look: a small round swatch, the reset arrow next to it */
+      .fp3d-style-pick {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 6px;
+      }
+      .fp3d-zoom-late {
+        font-size: 12px;
+        color: var(--fp3d-muted, var(--fp3d-text));
+      }
+      .fp3d-zoom-late input {
+        width: 110px;
+      }
+      .fp3d-style-pick select {
+        background: var(--fp3d-chrome-solid);
+        color: var(--fp3d-text);
+        border: 1px solid var(--fp3d-line);
+        border-radius: 10px;
+        padding: 6px 8px;
+        font: inherit;
+        max-width: 230px;
+      }
       .fp3d-accent-pick {
         display: inline-flex;
         align-items: center;
@@ -1524,8 +1764,21 @@ export class Floorplan3dPanel extends LitElement {
         scrollbar-width: none;
         flex: none;
       }
-      /* a desktop shows a thin scrollbar while the pointer rests on the bar */
-      .fp3d-nav:hover {
+      /* a desktop shows a thin scrollbar while the pointer rests on the bar. Its room is kept all the time (an
+         invisible thumb), so the bar does not grow on hover and the 3D view below does not jump; the bottom padding
+         gives that room back (idea from TRusselo, #1053). Touch screens keep their overlay scrollbars. */
+      @media (hover: hover) and (pointer: fine) {
+        .fp3d-nav:not(.fp3d-nav-wrap) {
+          scrollbar-width: thin;
+          scrollbar-color: transparent transparent;
+          padding-bottom: 3px;
+        }
+        .fp3d-nav:not(.fp3d-nav-wrap):hover {
+          scrollbar-color: color-mix(in srgb, var(--fp3d-text) 35%, transparent) transparent;
+        }
+      }
+      /* wrapped (several lines, scrolling up and down): the thin scrollbar on hover as before */
+      .fp3d-nav-wrap:hover {
         scrollbar-width: thin;
       }
       /* wrapped: several lines, at most about three before the bar itself scrolls */

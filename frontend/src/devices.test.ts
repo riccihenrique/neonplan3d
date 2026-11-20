@@ -13,7 +13,7 @@ test("a lamp switched by a relay takes colour and brightness from its colour ent
   // the bulb unavailable: the relay's own (plain) glow
   assert.deepEqual(lightGlow(relay as never, { ...bulb, state: "unavailable" } as never)!.color, [1, 0.71, 0.28]);
 });
-import { coverTiltButtons, isPulseDrive, isRelevant, apOnline, fanSpeed, climateModeGlow, cooktopLevel, onlyColor, appColor, carLocked, areaEntities, otherAreaEntities, roomClimateSensors, roomClimateValue, unassignedEntities, autoPlace, entityName, fridgeDoors, furnitureEntities, groupByDevice, isActive, kindOf, lightGlow, openingEntities, openingState, powerSensorsOf, primaryEntities, roomPanelEntities, windowPosition, confirmEntities, robotRoom, robotRoomSensor, roomKey, vacuumCleaning } from "./devices.ts";
+import { chargerStatus, slatTilt, slatsInverted, coverTiltButtons, isPulseDrive, isRelevant, apOnline, fanSpeed, climateModeGlow, cooktopLevel, onlyColor, fixedGlowColor, colorCapable, appColor, carLocked, areaEntities, otherAreaEntities, roomClimateSensors, roomClimateValue, unassignedEntities, autoPlace, entityName, fridgeDoors, furnitureEntities, groupByDevice, isActive, kindOf, lightGlow, openingEntities, openingState, powerSensorsOf, primaryEntities, roomPanelEntities, windowPosition, confirmEntities, robotRoom, robotRoomSensor, roomKey, vacuumCleaning } from "./devices.ts";
 import type { Floor, Opening, Room } from "./model.ts";
 import { centroid, newFloor, pointInPolygon } from "./model.ts";
 import type { HomeAssistant } from "./types.ts";
@@ -68,6 +68,17 @@ test("entity names drop the area prefix", () => {
   const hass = hassWith();
   assert.equal(entityName(hass, "light.decke", "Wohnzimmer"), "Decke");
   assert.equal(entityName(hass, "light.stehlampe", "Wohnzimmer"), "Stehlampe");
+});
+
+test("the room panel drops the device name Home Assistant 2026.11 puts in front of a renamed entity (#1181)", () => {
+  const hass = {
+    states: { "light.sw_l1": { entity_id: "light.sw_l1", state: "on", attributes: { friendly_name: "switch_living_a Ceiling light" } } },
+    entities: { "light.sw_l1": { entity_id: "light.sw_l1", name: "Ceiling light", device_id: "d1" } },
+    devices: { d1: { id: "d1", name: "switch_living_a", name_by_user: null } },
+  } as unknown as Parameters<typeof entityName>[0];
+  assert.equal(entityName(hass, "light.sw_l1", undefined, true), "Ceiling light");
+  // elsewhere (editor lists) the full name stays
+  assert.equal(entityName(hass, "light.sw_l1"), "switch_living_a Ceiling light");
 });
 
 test("kinds, active states and light glow", () => {
@@ -796,6 +807,17 @@ test("a lamp with one colour only glows for that colour (customer mail: yellow =
   const g = (color: [number, number, number]) => ({ color, level: 1 });
   assert.ok(onlyColor(g([1, 0.85, 0]), "#ffd400"));
   assert.equal(onlyColor(g([1, 0, 0]), "#ffd400"), null);
+  // a fixed colour (#977): the colour is the chosen one, the level stays; off stays off; a bad value changes nothing
+  const fixed = fixedGlowColor({ color: [1, 0, 0] as [number, number, number], level: 0.6 }, "#00ff80");
+  assert.deepEqual(fixed, { color: [0, 1, 128 / 255], level: 0.6 });
+  assert.equal(fixedGlowColor(null, "#00ff80"), null);
+  // a white-only light (Loxone's moods come as its "effect") cannot run a colour effect (#977)
+  const light = (modes: string[] | undefined) => ({ entity_id: "light.x", state: "on", attributes: modes ? { supported_color_modes: modes } : {}, last_changed: "", last_updated: "" }) as never;
+  assert.equal(colorCapable(light(["onoff"])), false);
+  assert.equal(colorCapable(light(["brightness", "color_temp"])), false);
+  assert.equal(colorCapable(light(["color_temp", "hs"])), true);
+  assert.equal(colorCapable(light(undefined)), true);
+  assert.deepEqual(fixedGlowColor({ color: [1, 0, 0] as [number, number, number], level: 1 }, "red"), { color: [1, 0, 0], level: 1 });
   assert.equal(onlyColor(g([0, 0.3, 1]), "#ffd400"), null);
   assert.equal(onlyColor(g([1, 0.95, 0.9]), "#ffd400"), null);
   assert.ok(onlyColor(g([1, 0, 0]), null));
@@ -990,4 +1012,43 @@ test("findAlarmEntity discovers alarm from keypad, placements or hass states", a
   const unlinkedKeypad = { id: "ak2", type: "alarm_keypad", x: 1, z: 1, rotation: 0, w: 0.14, d: 0.024, h: 0.12, variant: null, entity: null, power: null };
   const links = furnitureEntities(hass, [{ ...floorEmpty, furniture: [unlinkedKeypad] } as never]);
   assert.equal(links.get("ak2")?.entity, "alarm_control_panel.alarme_residencia");
+});
+
+test("a venetian blind reports how far its slats stand open; \"Invert slats\" turns it round (#971)", () => {
+  const cover = (attributes: Record<string, unknown>) => ({ entity_id: "cover.raff", state: "open", attributes });
+  const hass = (attributes: Record<string, unknown>) => ({ states: { "cover.raff": cover(attributes) } }) as unknown as HomeAssistant;
+  const link = { cover: "cover.raff", contact: null, tilt: null, contact2: null, tilt2: null };
+  // down to 30 % open, slats level
+  const level = openingState(hass({ current_position: 30, current_tilt_position: 100 }), link, "window");
+  assert.equal(level.cover, 0.7);
+  assert.equal(level.slats, 1);
+  assert.equal(openingState(hass({ current_position: 30, current_tilt_position: 25 }), link, "window").slats, 0.25);
+  // an integration that reports 0 for open slats
+  assert.equal(openingState(hass({ current_position: 30, current_tilt_position: 0 }), { ...link, slatInvert: true }, "window").slats, 1);
+  // a roller shutter has no slats to turn: nothing changes for it
+  assert.equal("slats" in openingState(hass({ current_position: 30 }), link, "window"), false);
+  // a garage door never shows slats
+  assert.equal("slats" in openingState(hass({ current_position: 30, current_tilt_position: 50 }), link, "garage"), false);
+  assert.equal(slatTilt(cover({ current_tilt_position: 130 }) as never), 100);
+  assert.equal(slatTilt(cover({ current_tilt_position: 20 }) as never, true), 80);
+  assert.equal(slatTilt(cover({}) as never), null);
+  const floor = { ...newFloor("f", "EG", 0), openings: [{ id: "w", cover: "cover.raff", slat_invert: true } as unknown as Opening] };
+  assert.equal(slatsInverted({ floors: [floor] } as never, "cover.raff"), true);
+  assert.equal(slatsInverted({ floors: [floor] } as never, "cover.other"), false);
+});
+
+test("a charger's status: whole words, so not_charging or charger_free is no charging and disconnected no car", () => {
+  const c = (raw: string) => chargerStatus(raw);
+  assert.deepEqual(c("charging"), { charging: true, plugged: true });
+  assert.deepEqual(c("Laden"), { charging: true, plugged: true });
+  assert.deepEqual(c("not_charging"), { charging: false, plugged: false });
+  assert.deepEqual(c("ready_to_charge"), { charging: false, plugged: true });
+  assert.deepEqual(c("charger_free"), { charging: false, plugged: false });
+  assert.deepEqual(c("charger_insert"), { charging: false, plugged: true });
+  assert.deepEqual(c("disconnected"), { charging: false, plugged: false });
+  assert.deepEqual(c("unplugged"), { charging: false, plugged: false });
+  assert.deepEqual(c("connected"), { charging: false, plugged: true });
+  assert.deepEqual(c("Available"), { charging: false, plugged: false });
+  assert.deepEqual(c("SuspendedEV"), { charging: false, plugged: true });
+  assert.deepEqual(c("charge complete"), { charging: false, plugged: true });
 });

@@ -56,6 +56,9 @@ test("a placed device reports power through a sensor of the same device", () => 
   const hass = hassForHouse();
   assert.equal(powerSensorFor(hass, "switch.tv"), "sensor.tv_power");
   assert.equal(powerSensorFor(hass, "sensor.fridge_power"), "sensor.fridge_power");
+  // a motion sensor on the same device never carries that meter (#337)
+  hass.entities!["binary_sensor.tv_motion"] = { entity_id: "binary_sensor.tv_motion", device_id: "d1" } as never;
+  assert.equal(powerSensorFor(hass, "binary_sensor.tv_motion"), null);
   const consumers = findConsumers(hass, house());
   assert.deepEqual(
     consumers.map((c) => [c.id, c.power]),
@@ -403,4 +406,14 @@ test("an inverter's cable ends at the grid point when told so, else at the meter
   b.settings.roof.cables = [{ id: "inv:inv", floor_id: "eg", points: [[7, 2]], height: 0.03 }];
   const hand = end();
   assert.deepEqual([hand[0], hand[2]], [10, 1.5]);
+});
+
+test("PV from the strings when the plant's sensor tells nothing or reads 0 while they make power (#Deye/Solarman)", async () => {
+  const { pvWithStrings } = await import("./energy.ts");
+  assert.equal(pvWithStrings(null, 1200), 1200);
+  assert.equal(pvWithStrings(0, 1200), 1200);
+  // a real reading wins; tiny string values (night, standby) do not override 0
+  assert.equal(pvWithStrings(900, 1200), 900);
+  assert.equal(pvWithStrings(0, 20), 0);
+  assert.equal(pvWithStrings(450, null), 450);
 });

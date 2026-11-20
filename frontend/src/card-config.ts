@@ -10,9 +10,16 @@ export interface CardConfig {
   type: string;
   /** A card template made in the editor (its id): its options apply, the ones written here win over them. */
   template?: string;
+  /** The floor plan shown (its id; default the main plan). Its card templates are the ones `template` names. */
+  plan?: string;
   floor?: string;
   /** Start in this room (its id from the editor): a display for one room, e.g. for the kids. */
   room?: string;
+  /** Show only these rooms (and outdoor areas, by id): the others, their furniture and devices are left out. One room
+   * opens with its panel beside the 3D view. */
+  rooms?: string[];
+  /** With `rooms`: the tablet stays in them (taps, jumps and floors outside do nothing); false lets one leave. */
+  rooms_lock?: boolean;
   /** A start view of this card's own (theta, phi, radius and target as the editor shows them); default: the plan's. */
   start_view?: StartView;
   height?: number;
@@ -58,9 +65,22 @@ export interface CardConfig {
   buttons?: { label: string; icon?: string; action: "navigate" | "more_info" | "service" | "fire_dom_event"; target?: string; data?: Record<string, unknown> }[];
   /** Heatmap of the rooms: none | temperature | humidity | co2 | values (the numbers at the room names). */
   heatmap?: "none" | "temperature" | "humidity" | "co2" | "values";
-  /** Look: neon | blueprint | day. */
-  /** The look; "auto" shows Day while the sun is up and Neon at night. */
-  theme?: "neon" | "blueprint" | "day" | "auto";
+  /**
+   * The style: a style id (neon, blueprint, day, focus, synth, cozy, evening, winter, model, pastel, warm), "auto"
+   * (Day while the sun is up, Neon at night) or "house" (the house's plan for day, evening and night).
+   */
+  theme?: string;
+  /** The card's own style for the evening and for the night (with `theme` as its day style). */
+  theme_evening?: string;
+  theme_night?: string;
+  /** An input_select / input_text whose state names the style; it wins while it names one. */
+  style_entity?: string;
+  /** Zoom style: the style the house turns into when zoomed in. */
+  zoom_style?: string;
+  /** How late the zoom style sets in, 0 (early) … 100 (late). */
+  zoom_late?: number;
+  /** Only the room zoomed into turns ("room") or every room ("all", default). */
+  zoom_scope?: "all" | "room";
   /** Date and time in a corner of the view (default off). */
   clock?: ClockPos;
   /** Accent colour for the neon look and the card's chips ("#rrggbb"); leave out for the stock cyan. */
@@ -138,8 +158,9 @@ export function cardTemplate(b: Building | null | undefined, id: string | undefi
   return key ? (list?.find((t) => t.id === key) ?? list?.find((t) => t.aliases?.includes(key))) : undefined;
 }
 
-/** What belongs to the dashboard the card sits on, not to its template: its size (a card on a tablet's whole screen). */
-export const CARD_OWN: readonly (keyof CardConfig)[] = ["fill", "height", "fullscreen_button"];
+/** What belongs to the dashboard the card sits on, not to its template: its size (a card on a tablet's whole screen),
+ * and the floor plan whose template it is. */
+export const CARD_OWN: readonly (keyof CardConfig)[] = ["fill", "height", "fullscreen_button", "plan"];
 
 /**
  * The options a card works with: a card that names a template shows the template – only its size comes from the

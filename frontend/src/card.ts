@@ -1,11 +1,14 @@
 // Lovelace card (loaded automatically by the integration, no resource needed).
 
 import { zonesOf, type Building } from "./model.ts";
-import { confirmEntities, entityName, findAlarmEntity } from "./devices.ts";
+import { roomsOnly, shownRoomIds } from "./rooms-filter.ts";
+import { confirmEntities, entityName, findAlarmEntity, haNavigate } from "./devices.ts";
 import { openMoreInfo } from "./markers.ts";
 import { countView } from "./diagnostics.ts";
 import { css, html, LitElement, nothing, type PropertyValues } from "lit";
 import { BuildingController } from "./building-controller.ts";
+import { MAIN_PLAN } from "./api.ts";
+import { OtherPlans } from "./plan-watch.ts";
 import "./components/camera-mosaic.ts";
 import "./components/room-bar.ts";
 import "./components/room-panel.ts";
@@ -51,6 +54,7 @@ export class Floorplan3dCard extends LitElement {
     hass: { attribute: false },
     _config: { state: true },
     _roomId: { state: true },
+    _walking: { state: true },
     _floorId: { state: true },
     _walls: { state: true },
     _heat: { state: true },
@@ -74,6 +78,8 @@ export class Floorplan3dCard extends LitElement {
   private yaml: CardConfig | null = null;
   private appliedTemplate = "";
   private declare _roomId: string | null;
+  /** One walks through the house: the room panel steps aside. */
+  private declare _walking: boolean;
   /** The configured start room was applied once the building arrived. */
   private roomApplied = false;
   /** Floor chosen in the card (null: the house; undefined: none chosen, the configured floor applies). */
@@ -103,12 +109,17 @@ export class Floorplan3dCard extends LitElement {
   private nightTimer: ReturnType<typeof setInterval> | undefined;
 
   private readonly data = new BuildingController(this);
+  /** The other plans, for the property (`plan: site`). */
+  private readonly watch = new OtherPlans(this);
+  /** The `plan` of the YAML the controller was told (a new YAML with the same plan does not reload it). */
+  private yamlPlan: string | undefined | null = null;
   /** Time travel (Pro, card option time_travel): the last 24 hours replayed, read-only. */
   private readonly tt = new TimeTravel(this);
 
   constructor() {
     super();
     this._roomId = null;
+    this._walking = false;
     this._floorId = undefined;
     this._walls = savedWalls();
     this._heat = null;
@@ -148,7 +159,7 @@ export class Floorplan3dCard extends LitElement {
   }
 
   private view3d() {
-    return this.shadowRoot?.querySelector("fp3d-view3d") as (HTMLElement & { resetView(): void; lookThrough(entityId: string): void; historyEntities(): HistorySpec; proHint(f: Feature): void; roomSheets(roomId: string): { id: string; icon: string; title: string }[]; openRoomSheet(roomId: string, id: string): void }) | null;
+    return this.shadowRoot?.querySelector("fp3d-view3d") as (HTMLElement & { resetView(): void; lookThrough(entityId: string): void; historyEntities(): HistorySpec; proHint(f: Feature): void; roomSheets(roomId: string): { id: string; icon: string; title: string }[]; openRoomSheet(roomId: string, id: string): void; walkHere(): void }) | null;
   }
 
   /** Time travel on or off; without the Pro add-on its hint shows. */
@@ -184,7 +195,7 @@ export class Floorplan3dCard extends LitElement {
       return;
     }
     this.tt.stop();
-    this._roomId = this._config?.room ?? null;
+    this._roomId = this.homeRoom();
     this._floorId = undefined;
     this.view3d()?.resetView();
     if (this._config?.idle_orbit) this._orbit = true;
@@ -192,8 +203,7 @@ export class Floorplan3dCard extends LitElement {
 
   /** Opens another dashboard or view the way Home Assistant's own links do (no page reload). */
   private openDashboard(path: string): void {
-    history.pushState(null, "", path);
-    window.dispatchEvent(new CustomEvent("location-changed", { bubbles: true, composed: true, detail: { replace: false } }));
+    haNavigate(path);
   }
 
   private readonly onFullscreen = () => {
@@ -299,6 +309,15 @@ clearTimeout(this.cleanTimer);
   setConfig(config: CardConfig): void {
     if (config.height !== undefined && !(config.height > 100)) throw new Error("height must be a number of pixels above 100");
     this.yaml = config;
+    // the floor plan comes first: the template is looked up in it
+    if (config.plan !== this.yamlPlan) {
+      this.yamlPlan = config.plan;
+      this.roomApplied = false;
+      this._floorId = undefined;
+      this._roomId = null;
+      // the property (`plan: site`) is the main plan with the buildings beside it
+      void this.data.switchPlan(config.plan === "site" ? MAIN_PLAN : (config.plan ?? null));
+    }
     this.appliedTemplate = this.templateKey();
     this.applyConfig(effectiveConfig(config, this.data.building));
   }
@@ -316,7 +335,8 @@ clearTimeout(this.cleanTimer);
     const differs = (k: keyof CardConfig) => !previous || JSON.stringify(previous[k]) !== JSON.stringify(config[k]);
     this._config = config;
     if (differs("floor")) this._floorId = undefined;
-    if (differs("room")) this.roomApplied = false;
+    if (differs("room") || differs("rooms")) this.roomApplied = false;
+    if (differs("rooms")) this._floorId = undefined;
     if (differs("walls")) this._walls = savedWalls();
     if (differs("heatmap")) this._heat = null;
     if (differs("explode")) this._explode = null;
@@ -354,13 +374,54 @@ clearTimeout(this.cleanTimer);
     }
   }
 
+  /** The rooms a card for some rooms shows (`rooms`, those the plan still has); empty: the whole house. */
+  private get shownRooms(): string[] {
+    return shownRoomIds(this.data.building, this._config?.rooms);
+  }
+
+  /** The tablet stays in its rooms (the kids', a holiday flat): taps, jumps and floors outside them do nothing. */
+  private get roomsLocked(): boolean {
+    return this.shownRooms.length > 0 && this._config?.rooms_lock !== false;
+  }
+
+  /** The floors with a room the card shows. */
+  private get roomFloors(): string[] {
+    const ids = new Set(this.shownRooms);
+    return (this.data.building?.floors ?? []).filter((f) => zonesOf(f).some((r) => ids.has(r.id))).map((f) => f.id);
+  }
+
+  /** A card for one room opens it (its panel beside, its devices at hand); else the configured start room. */
+  private homeRoom(): string | null {
+    if (this._config?.room) return this._config.room;
+    const shown = this.shownRooms;
+    return shown.length === 1 && this._config?.room_panel !== false ? shown[0] : null;
+  }
+
+  /** Whether a room may be opened here (a locked card only opens its own). */
+  private allowed(roomId: string | null): boolean {
+    return !roomId || !this.roomsLocked || this.shownRooms.includes(roomId);
+  }
+
+  /** The building cut down to the card's rooms, for the room bar (the 3D view cuts its own). */
+  private roomsOf: { from: Building; key: string; to: Building } | null = null;
+  private shownBuilding(b: Building): Building {
+    const rooms = this.shownRooms;
+    if (!rooms.length) return b;
+    const key = rooms.join(",");
+    if (this.roomsOf?.from !== b || this.roomsOf.key !== key) this.roomsOf = { from: b, key, to: roomsOnly(b, rooms) };
+    return this.roomsOf.to;
+  }
+
   /** One level up: room -> floor -> house. */
   /** Floors can be switched (no fixed floor, or floor pictures to switch with). */
   private get canSwitch(): boolean {
+    if (this.shownRooms.length) return this.roomFloors.length > 1;
     return !this._config?.floor || this.thumbs;
   }
 
   private get thumbs(): boolean {
+    // a card for some rooms has no pictures of the other floors
+    if (this.shownRooms.length) return false;
     return this._config?.floor_thumbs ?? !this._config?.floor;
   }
 
@@ -369,6 +430,9 @@ clearTimeout(this.cleanTimer);
   private currentFloor(): string | null {
     const b = this.data.building;
     const chosen = this._floorId === undefined ? (this._config?.floor ?? null) : this._floorId;
+    // a card for some rooms: their floor (with rooms on several floors the house of them, or the one chosen)
+    const rooms = this.roomFloors;
+    if (this.shownRooms.length) return rooms.length === 1 ? rooms[0] : chosen && rooms.includes(chosen) ? chosen : null;
     return b && b.floors.length === 1 ? b.floors[0].id : b?.floors.some((f) => f.id === chosen) ? chosen : null;
   }
 
@@ -402,16 +466,37 @@ clearTimeout(this.cleanTimer);
     </button>`;
   }
 
+  /** `plan: site`: the property, every building on it together (read only). */
+  private get isSite(): boolean {
+    return this._config?.plan === "site";
+  }
+
+  protected updated(): void {
+    if (this.isSite && this.data.plans.length > 1) this.watch.watch(this.hass, this.data);
+    // the walk button steps aside for the card's own buttons at the top right, as wide as they really are: a
+    // dashboard button with a long label ("Zum Energiefluss") reached over it (#1146)
+    const view = this.shadowRoot?.querySelector("fp3d-view3d") as HTMLElement | null;
+    if (view) {
+      const left = Math.min(...[...(this.shadowRoot?.querySelectorAll<HTMLElement>(".fp3d-card-full") ?? [])].map((el) => el.offsetLeft), Infinity);
+      const right = Number.isFinite(left) ? Math.max(104, view.clientWidth - left + 8) : 104;
+      if (view.style.getPropertyValue("--fp3d-walk-right") !== `${right}px`) view.style.setProperty("--fp3d-walk-right", `${right}px`);
+    }
+  }
+
   protected render() {
     if (this.hass && !languageReady(this.hass.language)) return nothing;
-    const b = this.data.building;
+    const b = this.isSite ? (this.watch.site(this.data) ?? this.data.building) : this.data.building;
     const height = this._config?.height ?? 420;
     const c = this._config;
     // the configured room opens once, when the building is there; the kiosk return brings it back
-    if (!this.roomApplied && b && c?.room) {
+    const home = b ? this.homeRoom() : null;
+    if (!this.roomApplied && b && home) {
       this.roomApplied = true;
-      if (b.floors.some((f) => zonesOf(f).some((r) => r.id === c.room))) this._roomId = c.room;
+      if (b.floors.some((f) => zonesOf(f).some((r) => r.id === home))) this._roomId = home;
     }
+    const rooms = this.shownRooms;
+    // the room of a card for one room is where "here" means (unless the card names its own)
+    const roomArea = rooms.length === 1 ? (b?.floors.flatMap((f) => zonesOf(f)).find((r) => r.id === rooms[0])?.area_id ?? null) : null;
     // the configured floor is where the card starts; with floor pictures the user can switch
     const floorId = this.currentFloor();
     // the floor pictures have a house button of their own; a room with its panel has a close button
@@ -450,6 +535,9 @@ clearTimeout(this.cleanTimer);
               .hass=${this.tt.hass(this.hass)}
               .replay=${this.tt.session?.replay ?? null}
               .building=${b}
+              .planId=${this.isSite ? null : this.data.planId}
+              .noSave=${this.isSite}
+              .rooms=${rooms.length ? rooms : null}
               .packs=${this.data.packs}
               .floorId=${floorId}
               .roomId=${this._roomId}
@@ -457,7 +545,7 @@ clearTimeout(this.cleanTimer);
               .explode=${explode}
               .keepRoof=${c?.roof_fade === false}
               .plain=${c?.plain === true}
-              .hideRoof=${c?.roof === false}
+              .hideRoof=${c?.roof === false || rooms.length > 0}
               .quality=${this._config?.quality ?? "auto"}
               ?showStats=${this._config?.stats ?? false}
               .markerMode=${this._config?.markers ?? "important"}
@@ -465,11 +553,18 @@ clearTimeout(this.cleanTimer);
               .markerNames=${this._config?.marker_names === true}
               .central=${this._config?.central !== false}
               .walkable=${this._config?.walk !== false}
+              @walk-change=${(e: CustomEvent<{ walking: boolean }>) => (this._walking = e.detail.walking)}
               .petsOn=${this._config?.pets !== false}
               .ghostOn=${this._config?.ghost !== false}
               .buttons=${this._config?.buttons?.map((b, i) => ({ id: `card_${i}`, ...b })) ?? null}
               .heatMode=${heat}
               .theme=${this._config?.theme ?? "neon"}
+              .zoomStyle=${this._config?.zoom_style ?? null}
+              .zoomLate=${this._config?.zoom_late ?? null}
+              .zoomScope=${this._config?.zoom_scope ?? null}
+              .themeEvening=${this._config?.theme_evening ?? null}
+              .themeNight=${this._config?.theme_night ?? null}
+              .styleEntity=${this._config?.style_entity ?? null}
               .clock=${this._config?.clock ?? null}
               .accent=${this._config?.accent ?? null}
               .showEnergy=${this._config?.energy ?? true}
@@ -490,7 +585,7 @@ clearTimeout(this.cleanTimer);
               .screen=${c?.screen?.trim() || null}
               .template=${c?.template?.trim() || null}
               .viewKind=${this.preview ? "preview" : "card"}
-              .voiceArea=${c?.voice_area?.trim() || null}
+              .voiceArea=${c?.voice_area?.trim() || roomArea}
               @open-extensions=${() => this.openDashboard("/neonplan3d?tab=extensions")}
               .scenes=${c?.scenes !== false}
               ?trail=${!!c?.motion_trail}
@@ -514,7 +609,9 @@ clearTimeout(this.cleanTimer);
                 // in the house view (or on another floor) a tap first opens the whole floor; the floor as it is now,
                 // not as rendered: a jump switches the floor and opens the room 60 ms later, before a slow tablet
                 // has drawn again (#784)
+                if (!this.allowed(e.detail.roomId)) return;
                 if (this.canSwitch && (b?.floors.length ?? 0) > 1 && e.detail.floorId && this.currentFloor() !== e.detail.floorId) {
+                  if (this.roomsLocked && !this.roomFloors.includes(e.detail.floorId)) return;
                   this._floorId = e.detail.floorId;
                   this._roomId = null;
                   return;
@@ -523,6 +620,7 @@ clearTimeout(this.cleanTimer);
                 this._roomId = e.detail.roomId === this._roomId ? null : e.detail.roomId;
               }}
               @floor-tap=${(e: CustomEvent<{ floorId: string | null }>) => {
+                if (this.roomsLocked && e.detail.floorId && !this.roomFloors.includes(e.detail.floorId)) return;
                 this._floorId = e.detail.floorId;
                 this._roomId = null;
               }}
@@ -535,11 +633,12 @@ clearTimeout(this.cleanTimer);
               class="fp3d-card-room-bar"
               style="bottom:${bar ? 54 : 8}px"
               .hass=${this.hass}
-              .building=${b}
+              .building=${this.shownBuilding(b)}
               .floorId=${floorId}
               .roomId=${this._roomId}
               ?favorites=${c?.room_bar_favorites === true}
               @room-pick=${(e: CustomEvent<{ floorId: string; roomId: string }>) => {
+                if (!this.allowed(e.detail.roomId)) return;
                 // straight into the room; on another floor only where the card may switch floors
                 if (e.detail.floorId !== this.currentFloor()) {
                   if (!this.canSwitch) return;
@@ -549,8 +648,10 @@ clearTimeout(this.cleanTimer);
               }}
             ></fp3d-room-bar>`
           : nothing}
-        ${this._roomId && b && this._config?.room_panel !== false
+        ${this._roomId && b && this._config?.room_panel !== false && !this._walking
           ? html`<fp3d-room-panel
+              ?walk=${this._config?.walk !== false}
+              @walk-here=${() => this.view3d()?.walkHere()}
               @camera-look=${(e: CustomEvent<{ entity: string }>) => this.view3d()?.lookThrough(e.detail.entity)}
               class="fp3d-card-panel"
               .hass=${this.tt.hass(this.hass)}
@@ -666,16 +767,6 @@ clearTimeout(this.cleanTimer);
         background: #ffb020;
         color: #1a1200;
       }
-      .fp3d-card-dash {
-        width: auto;
-        min-width: 38px;
-        padding: 0 12px;
-        font-size: 14px;
-        font-weight: 600;
-      }
-      .fp3d-card-dash-2 {
-        right: 56px;
-      }
       /* the view's walk button steps aside for the card's own buttons at the top right */
       fp3d-view3d {
         --fp3d-walk-right: 104px;
@@ -693,6 +784,18 @@ clearTimeout(this.cleanTimer);
         box-shadow: var(--fp3d-shadow);
         font-size: 18px;
         cursor: pointer;
+      }
+      /* the dashboard button: after the rule above, so its own width wins and, beside the full screen button, it
+         steps to the left instead of covering it (D1002) */
+      .fp3d-card-full.fp3d-card-dash {
+        width: auto;
+        min-width: 38px;
+        padding: 0 12px;
+        font-size: 14px;
+        font-weight: 600;
+      }
+      .fp3d-card-full.fp3d-card-dash-2 {
+        right: 56px;
       }
       /* full screen made by the card itself (iPad, the app on iOS): over the whole page */
       ha-card.fp3d-pseudo-full {

@@ -4,6 +4,7 @@
 import type { CardConfig } from "./card-config.ts";
 import { packItem } from "./packs.ts";
 import type { LampModel } from "./viewer/viewer3d.ts";
+import type { CustomStyle, StylePlan } from "./looks.ts";
 
 export type Vec2 = [number, number];
 
@@ -33,6 +34,11 @@ export interface Room {
   start_view?: StartView | null;
   points: Vec2[];
   floor_material: string;
+  /**
+   * The room's name moved from its middle in the plan and in 3D, in metres (null: in the middle) – where names of
+   * small rooms would cover each other. An offset, so it moves along with the room.
+   */
+  label_offset?: Vec2 | null;
   /** Entities shown in the room's panel although they are not in the plan. */
   panel?: string[];
   /** Entities of the room's area kept out of the room panel. */
@@ -59,6 +65,10 @@ export interface Room {
    * thickness. A wall two rooms share takes the thicker of their settings (D149).
    */
   wall_thickness?: (number | null)[];
+  /** Colour of the room's side of each wall ("#rrggbb", aligned with the points; null = `wall_color`), shown in the homely styles. */
+  wall_colors?: (string | null)[] | null;
+  /** Colour of every wall of the room on its own side, unless the wall has its own (null = the style's white). */
+  wall_color?: string | null;
   /**
    * Split points on each edge (index = edge): distances in metres from points[i] where the wall is cut
    * into parts of their own (each with its own height), e.g. a 2.5 m wall next to a 1.7 m one in line.
@@ -97,8 +107,12 @@ export interface Opening {
   leaves: 1 | 2;
   /** Doors swing into their room ("in") or to the other side ("out"). */
   swing: "in" | "out";
+  /** Windows: hung at the top, the bottom opening outwards (#327, common in Scandinavia); open and tilted look alike. */
+  top_hung?: boolean;
   /** Look of the door or window (null = automatic: a front door in an exterior wall, else a room door). */
   style?: OpeningStyle | null;
+  /** A garage door's kind: a sectional door (null) or an up-and-over door, one leaf that swings out and up. */
+  garage_kind?: "sectional" | "tilt" | null;
   /** One sidelight: on the hinge side instead of opposite the hinge. */
   sidelight_hinge?: boolean;
   /** Width of the sidelight(s) in m (null = automatic); with two, `sidelight_width2` is the right one (seen from the room). */
@@ -117,6 +131,10 @@ export interface Opening {
   position?: string | null;
   /** The position sensor counts the other way round (0 = open). */
   position_inverted?: boolean;
+  /** Where the blind sits: outside as a roller shutter (null, the default) or inside the room as a roller shade. */
+  blind_side?: "inside" | "outside" | null;
+  /** The blind's slats report their tilt the other way round (0 = open): turned in 3D and in the sliders. */
+  slat_invert?: boolean | null;
   /** Windows: a sensor with the sash's tilt angle (degrees); the sash tilts in 3D as far as it reports. */
   tilt_angle?: EntityRef;
   /** Angle that counts as fully tilted (default 15°), an offset the sensor reports when closed, and the other sign. */
@@ -205,6 +223,8 @@ export interface Furniture {
    * signal (yellow: water) does not show its other colours here. Null: every colour.
    */
   only_color?: string | null;
+  /** Lamps: always drawn in this colour ("#rrggbb"), whatever the light reports – on/off and brightness still follow it (#977). Null: the light's colour. */
+  glow_color?: string | null;
   /** With a power sensor: the item counts as running above this many watts (null = the default, 10 W). */
   run_w?: number | null;
   /** Awning: the fabric's fall in degrees (null = 12°). */
@@ -221,6 +241,16 @@ export interface Furniture {
   bin_kind?: "rest" | "bio" | "paper" | "plastic" | "glass" | "garden" | "recycling" | "other" | null;
   /** Waste bin: its body colour ("#rrggbb"; null = the usual one of its kind in the country). */
   bin_color?: string | null;
+  /**
+   * Own colours in the homely styles (finishes.ts): wood, fabric (and cushions), fronts and the carcass ("body"),
+   * "#rrggbb" each; missing = the look's own (the carcass follows the fronts while it has none).
+   */
+  finish?: { wood?: string | null; fabric?: string | null; front?: string | null; body?: string | null } | null;
+  /** Live parts of a pack item (3.4): the entity of each of its slots (slot id -> entity id). */
+  binds?: Record<string, string> | null;
+  /** Neon sign: its own text (one or two lines, split with |) and the colour of its tubes while no light gives one. */
+  sign_text?: string | null;
+  sign_color?: string | null;
   /** Waste bin: its lid colour ("#rrggbb"; null = like the body, or the country's usual lid). */
   bin_lid?: string | null;
   /** Haushalt Pro: the waste calendar (calendar.*) or a sensor with the next pickup of this bin. */
@@ -229,6 +259,19 @@ export interface Furniture {
   bin_match?: string | null;
   /** Haushalt Pro: an entity that is on while the bin is out (input_boolean, switch, binary_sensor; null = none). */
   bin_out?: EntityRef;
+  /** Digital picture frames: what the frame's face shows (null = nothing, a dark pane). */
+  frame_kind?: "calendar" | "camera" | "media" | "person" | "photo" | "weather" | "todo" | "board" | "persons" | null;
+  /**
+   * Digital picture frames: where it comes from – calendar entities (several separated by commas), a camera, a media
+   * player, a person, a weather entity, or for a photo an http(s) URL or a stored picture (see pictureUrl).
+   */
+  frame_source?: string | null;
+  /** Camera frame: an entity (doorbell, motion, event) that pops the frame up large, or "detect" for the camera's own detections. */
+  frame_trigger?: string | null;
+  /** Calendar and board: minutes before an event an announcement and a note remind of it (null = none). */
+  frame_remind?: number | null;
+  /** Photo slideshow: seconds per picture (null = 30). */
+  frame_interval?: number | null;
   /** Haushalt Pro, mailbox: the sensor of the door it is emptied through (post counts until it opens). */
   mailbox_door?: EntityRef;
   /** Haushalt Pro, plant: a plant.* entity or a soil moisture sensor; thirsty below `moisture_min`. */
@@ -336,7 +379,7 @@ export type LampMount = "ceiling" | "floor" | "table" | "wall";
 export type ModuleData = Record<string, Record<string, unknown>>;
 
 /** How a device's marker shows in 3D (null = automatic by the marker mode). */
-export const MARKER_SHOWS = ["always", "no_power", "never"] as const;
+export const MARKER_SHOWS = ["always", "active", "no_power", "never"] as const;
 export type MarkerShow = (typeof MARKER_SHOWS)[number];
 
 export interface Placement {
@@ -378,6 +421,8 @@ export interface Placement {
   cone?: boolean | null;
   /** Cameras: detection pins (person, car, animal) over the camera (null = yes); false leaves only the wedge turning red (#267). */
   detect_pins?: boolean | null;
+  /** Cameras (Kamera-Cockpit): a new detection opens the camera's picture as a small pop-up for a while (#442, off by default). */
+  detect_popup?: boolean;
   /** Cameras: the detection sensors that count, chosen by hand (any device's); null = those of the camera's device (#815). */
   detect_sensors?: string[] | null;
 }
@@ -423,6 +468,8 @@ export interface FreeWall {
   height?: number | null;
   /** A sloping top (#834): the height at end a and at end b, straight in between; null = the plain height. */
   slope?: [number, number] | null;
+  /** Colour of both sides ("#rrggbb"; null = the room's wall, or the facade outside the rooms), shown in the homely styles (#1101). */
+  color?: string | null;
 }
 
 /** "custom": the roof is made of sections (wings of an L- or T-shaped house, a barn, a lean-to …). */
@@ -456,6 +503,11 @@ export interface RoofSection {
   /** Slopes in degrees. */
   pitch_a: number;
   pitch_b: number;
+  /**
+   * Mansard only: the slope of the upper, flatter part up to the ridge in degrees (5 … 60); pitch_a and pitch_b
+   * set the steep lower part. Null or missing = 30°, as every mansard drawn before (#1183).
+   */
+  pitch_upper?: number | null;
   /** Top of the walls below: gable and knee walls are built from here up to the roof. */
   base: number;
   /** Overhang beyond the walls (null = the roof setting). */
@@ -501,6 +553,12 @@ export interface RoofSettings {
   overhang: number;
   /** Gable roof: ridge along the long side (default) or across, along the short side (terraced houses). */
   ridge?: "long" | "short" | null;
+  /**
+   * The footprint a flat or gable roof spans [x0, z0, x1, z1] (the top floor's rooms, without walls and overhang)
+   * when it is not that of the rooms present: a card that shows only some rooms keeps the whole house's roof over
+   * them (#997). Never saved; set by roomsOnly.
+   */
+  frame?: [number, number, number, number] | null;
   /** Roof sections of a "custom" roof. */
   sections?: RoofSection[];
   /** Solar fields on the roof faces. */
@@ -693,7 +751,11 @@ export const PET_FURS_OF: Record<Pet["kind"], readonly string[]> = {
 /** Dog breeds, small to large. */
 export const DOG_BREEDS = ["dachshund", "pug", "terrier", "labrador", "shepherd"] as const;
 
-export interface BuildingSettings {
+export interface BuildingSettings extends StylePlan {
+  /** The outside of the house in the homely styles ("#rrggbb", null = like the walls). */
+  facade_color?: string | null;
+  /** Own styles: built-in ones adjusted and named (listed with the others everywhere). */
+  styles_custom?: CustomStyle[] | null;
   /** The background behind the 3D house (null: the look's own sky): a colour, a gradient or a picture. */
   backdrop?: { kind?: "color" | "gradient" | "image" | null; color?: string | null; color2?: string | null; image?: string | null; dim?: number | null } | null;
   /**
@@ -756,6 +818,10 @@ export interface BuildingSettings {
   sun_patches?: boolean;
   /** The sun's arc over the house and the house's shadow on the ground (default on). */
   sun_shadow?: boolean;
+  /** The real sky behind the house: sunset colours, stars, the moon in its phase, clouds with the weather (default on). */
+  sky?: boolean;
+  /** "Anflug aus dem All": the view opens with a globe that dives in onto the house (default off). */
+  flyin?: boolean;
   /** What the sun's arc and its compass ring stand around: the house (null, default) or everything drawn on the plot (#833). */
   sun_arc?: "house" | "plot" | null;
   /** At night lit rooms throw their light out of the windows onto the ground in front (default on). */
@@ -770,7 +836,7 @@ export interface BuildingSettings {
    * Haushalt Pro: from which hour the day before a bin glows (null = 14) and until which hour on the day (null = 12);
    * only the bins of the next pickup wear a tag (`bin_next_only`), tags only from `bin_days` days before (null = always).
    */
-  household?: { bin_from?: number | null; bin_until?: number | null; notes?: EntityRef; bin_next_only?: boolean | null; bin_days?: number | null } | null;
+  household?: { bin_from?: number | null; bin_until?: number | null; notes?: EntityRef; bin_next_only?: boolean | null; bin_days?: number | null; /** Calendars whose entries of today stand in "Today in the household". */ calendars?: string[] | null } | null;
   /** The floor the editor opens with (null: the first of the list) (D418). */
   editor_floor?: string | null;
   /** Located people in 3D: a neon figure (null = default), a pin, or not shown. */
@@ -779,6 +845,10 @@ export interface BuildingSettings {
   halloween?: { ghost?: boolean } | null;
   /** Fun pack "Winter & Christmas": fairy lights along the eaves, snow on roof and lawn, the New Year's firework (winter.ts). */
   winter?: { roof_lights?: boolean; roof_entity?: string | null; roof_color?: boolean; roof_outline?: boolean; snow?: boolean; firework?: boolean } | null;
+  /** Size of the room names in 3D (null = 1, as before). */
+  label_scale?: number | null;
+  /** The neighbourhood from OpenStreetMap around the house (surroundings.ts), fetched once and kept in the plan. */
+  surroundings?: Surroundings | null;
   /** Plan lock: rooms, walls, doors, windows and outdoor areas cannot be moved by accident. */
   lock_plan?: boolean;
   /** The camera the house view opens with (3D view, card, kiosk); null = fitted from the front left. */
@@ -788,6 +858,59 @@ export interface BuildingSettings {
 }
 
 /** A camera position around the house: azimuth and polar angle (radians) and the distance (m). */
+/** A building of the neighbourhood: its footprint in map metres (east, north from the origin) and its height. */
+export interface SurroundBuilding {
+  p: Vec2[];
+  h: number;
+}
+
+/** A street, path, railway or stream as a centre line in map metres, with its width. */
+export interface SurroundWay {
+  p: Vec2[];
+  w: number;
+  k: "road" | "path" | "rail" | "water";
+}
+
+/** A flat area of the neighbourhood: water, a green (park, meadow) or a wood. */
+export interface SurroundArea {
+  p: Vec2[];
+  k: "water" | "green" | "wood";
+}
+
+/**
+ * The neighbourhood around the house from OpenStreetMap (© OpenStreetMap contributors, ODbL): fetched once at the
+ * home's location and kept in the plan. Coordinates are map metres from the origin (east, north); the plan turns
+ * them by its north and puts the origin at (x, z).
+ */
+export interface Surroundings {
+  /** Shown in 3D (the data stays when it is switched off). */
+  on: boolean;
+  /** Where it was fetched (degrees) and when (unix seconds), and the radius in metres. */
+  lat: number;
+  lon: number;
+  at: number;
+  radius: number;
+  /** The plan point the origin lies on. */
+  x: number;
+  z: number;
+  /** The map building that is the house itself (not drawn: the plan stands there); null = none picked. */
+  own?: number | null;
+  /** Map buildings hidden by hand, and ones shown although they stand where the plan has the house (indices). */
+  hide?: number[];
+  show?: number[];
+  /** The neighbours' houses only as their outline on the ground instead of blocks. */
+  flat?: boolean;
+  /** The neighbours' houses with a simple gable roof instead of a flat top (large buildings stay blocks). */
+  roofs?: boolean;
+  /** The whole map shifted up or down (m), where the street lies higher or lower than the ground floor (#1148). */
+  y?: number;
+  buildings: SurroundBuilding[];
+  ways: SurroundWay[];
+  areas: SurroundArea[];
+  /** Single trees (map metres). */
+  trees: Vec2[];
+}
+
 export interface StartView {
   theta: number;
   phi: number;
@@ -929,6 +1052,17 @@ export function outdoorGround(floor: Floor, x: number, z: number): number {
   // an area cut out of the one beneath it wins over that one
   const a = [...inside].reverse().find((o) => o.cut) ?? inside[0];
   return a ? outdoorTopAt(floor, a, x, z) : groundLevel(floor);
+}
+
+/**
+ * The surface seen from above at a point outside the rooms: an area cut out of another wins, else the highest of the
+ * areas lying there – a terrace drawn on a lawn is on top. The window light at night lies on it, not under it (#893).
+ */
+export function outdoorSurface(floor: Floor, x: number, z: number): number {
+  const inside = (floor.outdoor ?? []).filter((o) => !outdoorStanding(o.type) && o.type !== "pool" && pointInPolygon([x, z], o.points));
+  const cut = [...inside].reverse().find((o) => o.cut);
+  if (cut) return outdoorTopAt(floor, cut, x, z);
+  return inside.length ? Math.max(...inside.map((a) => outdoorTopAt(floor, a, x, z))) : groundLevel(floor);
 }
 
 /** Auto Pro: which entities tell the car's state; null = automatic (an entity of the car's Home Assistant device). */
@@ -1432,12 +1566,13 @@ export const FURNITURE_TYPES = [
   "lamp_fan",
   "wifi_ap",
   "water_heater",
+  "neon_sign",
 ] as const;
 
 /** Furniture library sections (the editor lists them in this order). */
 export const FURNITURE_GROUPS: Record<string, FurnitureType[]> = {
   lights: ["lamp_ceiling", "lamp_downlight", "lamp_spot", "lamp_panel", "lamp_pendant", "lamp_fan", "lamp_floor", "lamp_uplight", "lamp_table", "lamp_wall", "led_strip", "lamp_bollard", "lamp_garden"],
-  living: ["sofa", "sofa_l", "sofa_u", "armchair", "stool", "coffee_table", "tv_board", "tv_wall", "sideboard", "shelf", "plant", "plant_jiboia", "plant_orquidea", "rug"],
+  living: ["sofa", "sofa_l", "sofa_u", "armchair", "stool", "coffee_table", "tv_board", "tv_wall", "sideboard", "shelf", "plant", "plant_jiboia", "plant_orquidea", "rug", "neon_sign"],
   dining: ["table", "table_round", "chair", "bench", "corner_bench", "bar_stool"],
   kitchen: ["kitchen", "kitchen_wall", "kitchen_tall", "island", "worktop", "sink", "stove", "bbq_indoor", "dishwasher", "fridge"],
   sleeping: ["bed", "bunk_bed", "nightstand", "wardrobe", "dresser"],
@@ -1594,6 +1729,9 @@ export function builtinBase(f: Pick<Furniture, "type" | "h"> & { variant?: strin
       return 1.45;
     case "tv_wall":
       return Math.max(0, 1.3 - f.h / 2);
+    case "neon_sign":
+      // a neon sign hangs on the wall, its middle at 1.6 m
+      return Math.max(0, 1.6 - f.h / 2);
     case "radiator":
       return 0.12;
     case "ac_unit":
@@ -1701,6 +1839,7 @@ export const ELECTRIC_FURNITURE = new Set<string>([
   "pool_dosing",
   "tv_board",
   "tv_wall",
+  "neon_sign",
   "desk",
   "fridge",
   "fridge_smart",
@@ -1783,6 +1922,8 @@ export const FURNITURE_SIZE: Record<FurnitureType, [number, number, number]> = {
   // a 240 l wheelie bin; a wall mailbox
   waste_bin: [0.58, 0.73, 1.07],
   mailbox: [0.38, 0.14, 0.34],
+  // a neon sign on its dark acrylic plate
+  neon_sign: [0.9, 0.03, 0.32],
   // a single plate; more gangs make it wider (gangPlateWidth)
   wall_switch: [0.085, 0.012, 0.085],
   wall_socket: [0.085, 0.014, 0.085],
@@ -1829,12 +1970,13 @@ export const OPENING_DEFAULTS = {
 /** Door looks: room doors, front doors (with glass, one or two sidelights), a glass door, a sliding door. */
 export const DOOR_STYLES = ["interior", "front", "front_glass", "sidelight", "sidelights", "glass", "sliding", "sliding_glass", "passage"] as const;
 /** "glass_wall": fixed floor-to-ceiling glazing without sashes, slim mullions (an indoor glass wall, #163). */
-export const WINDOW_STYLES = ["standard", "window_sliding", "bars", "glass_wall"] as const;
+/** "slide": a lift-and-slide door or sliding window – one pane fixed, the other slides in front of it (#397, #361). */
+export const WINDOW_STYLES = ["standard", "bars", "glass_wall", "slide", "window_sliding"] as const;
 export type OpeningStyle = (typeof DOOR_STYLES)[number] | (typeof WINDOW_STYLES)[number];
 
 /** Framed sliding glass door or sliding glass window (sashes run horizontally on parallel tracks inside the frame). */
 export function isSlidingGlass(style: OpeningStyle): boolean {
-  return style === "sliding_glass" || style === "window_sliding";
+  return style === "sliding_glass" || style === "window_sliding" || style === "slide";
 }
 
 /** The style an opening is drawn with: its own, or the automatic one for its wall. */
@@ -1912,6 +2054,8 @@ export const OPENING_PRESETS = {
   terrace_double: { type: "window", leaves: 2, width: 1.8, sill: 0, height: 2.1 },
   garage: { type: "garage", leaves: 1, width: 2.5, sill: 0, height: 2.1 },
   glass_wall: { type: "window", leaves: 1, width: 2.0, sill: 0, height: 2.4, style: "glass_wall" },
+  terrace_slide: { type: "window", leaves: 1, width: 2.4, sill: 0, height: 2.15, style: "slide" },
+  window_slide: { type: "window", leaves: 1, width: 1.6, sill: 0.9, height: 1.3, style: "slide" },
 } as const satisfies Record<string, { type: OpeningType; leaves: 1 | 2; width: number; sill: number; height: number; style?: OpeningStyle }>;
 
 export type OpeningPreset = keyof typeof OPENING_PRESETS;
@@ -1920,6 +2064,7 @@ export type OpeningPreset = keyof typeof OPENING_PRESETS;
 export function openingPreset(o: Pick<Opening, "type" | "leaves" | "sill" | "style">): OpeningPreset {
   if (o.type === "garage") return "garage";
   if (o.type === "window" && o.style === "glass_wall") return "glass_wall";
+  if (o.type === "window" && o.style === "slide") return o.sill < 0.1 ? "terrace_slide" : "window_slide";
   const two = o.leaves === 2;
   if (o.type === "window" && o.style === "window_sliding") return two ? "window_sliding_double" : "window_sliding";
   if (o.type === "door") {
@@ -1942,7 +2087,7 @@ export function normalizeBuilding(b: Building): Building {
     f.rooms = f.rooms.map((r) => ({ ...r, panel: r.panel ?? [] }));
     f.ha_floor = f.ha_floor ?? null;
     f.placements = f.placements.map((p) => ({ ...p, mount: p.mount ?? null, rotation: p.rotation ?? 0 }));
-    f.furniture = f.furniture.map((m) => ({ ...m, entity: m.entity ?? null, power: m.power ?? null }));
+    f.furniture = f.furniture.map((m) => ({ ...m, entity: m.entity ?? null, power: m.power ?? null, ...(m.show_if && !m.show_if.entity ? { show_if: null } : {}) }));
     // lights placed as devices (before lamps existed) become lamps of their mount type
     // (a light turned back into a pin on purpose stays a pin)
     const lights = f.placements.filter((p) => p.entity_id.startsWith("light.") && !p.pin);
@@ -1987,6 +2132,53 @@ export function signedArea(points: readonly Vec2[]): number {
 
 export function polygonArea(points: readonly Vec2[]): number {
   return Math.abs(signedArea(points));
+}
+
+/** Where a room's name stands: its middle, moved by its own offset (idea: Banhammer1919). */
+export function labelPoint(room: Pick<Room, "points" | "label_offset">): Vec2 {
+  const [x, z] = centroid(room.points);
+  const o = room.label_offset;
+  return o && Number.isFinite(o[0]) && Number.isFinite(o[1]) ? [x + o[0], z + o[1]] : [x, z];
+}
+
+/** How far a point lies from a polygon's outline (m). */
+function edgeDistance(p: Vec2, points: readonly Vec2[]): number {
+  let best = Infinity;
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i];
+    const b = points[(i + 1) % points.length];
+    const dx = b[0] - a[0];
+    const dz = b[1] - a[1];
+    const l = dx * dx + dz * dz;
+    const t = l > 0 ? Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dz) / l)) : 0;
+    best = Math.min(best, Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dz));
+  }
+  return best;
+}
+
+/**
+ * A point well inside a room: its middle when that lies inside with some room around it, else the point of a fine
+ * grid farthest from the walls. The middle of an L-shaped room can lie in the room next to it (#900: a person stood
+ * in the hall while located in the L-shaped living room).
+ */
+export function innerPoint(points: readonly Vec2[]): Vec2 {
+  const c = centroid(points);
+  if (points.length < 3 || (pointInPolygon(c, points) && edgeDistance(c, points) >= 0.6)) return c;
+  const xs = points.map((p) => p[0]);
+  const zs = points.map((p) => p[1]);
+  const [x0, x1, z0, z1] = [Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs)];
+  const n = 24;
+  let best: Vec2 = c;
+  let far = pointInPolygon(c, points) ? edgeDistance(c, points) : -1;
+  for (let i = 0; i <= n; i++) {
+    for (let j = 0; j <= n; j++) {
+      const q: Vec2 = [x0 + ((x1 - x0) * i) / n, z0 + ((z1 - z0) * j) / n];
+      if (!pointInPolygon(q, points)) continue;
+      const d = edgeDistance(q, points);
+      if (d > far + 1e-9) [best, far] = [q, d];
+    }
+  }
+  return best;
 }
 
 /** Area-weighted centroid; falls back to the vertex average for degenerate polygons. */
