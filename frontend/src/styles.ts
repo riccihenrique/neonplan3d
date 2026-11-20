@@ -73,6 +73,10 @@ export const controls = css`
     animation: fp3d-sec-pulse 1s infinite alternate !important;
     box-shadow: 0 0 14px rgba(255, 51, 75, 0.8) !important;
   }
+  .fp3d-sec-warn {
+    border-color: rgba(251, 191, 36, 0.65) !important;
+    color: #fbbf24 !important;
+  }
   @keyframes fp3d-sec-pulse {
     from {
       opacity: 1;

@@ -16,7 +16,7 @@ import { OtherPlans } from "./plan-watch.ts";
 import "./components/room-bar.ts";
 import "./components/room-panel.ts";
 import "./components/view3d.ts";
-import { countMosaicCameras } from "./camera-mosaic-data.ts";
+import { securityChipModel } from "./security-data.ts";
 import { languageReady, loadLanguage, translate, type I18nKey } from "./i18n.ts";
 import type { Building, StartView } from "./model.ts";
 import { controls, tokens } from "./styles.ts";
@@ -28,7 +28,6 @@ import { setCustomStyles } from "./looks.ts";
 import { keepInRoom, snapToWall } from "./geometry/snap.ts";
 import { furnitureName } from "./furniture-names.ts";
 import { confirmEntities, defaultHeight, entityName, findAlarmEntity, kindOf } from "./devices.ts";
-import { openMoreInfo } from "./markers.ts";
 import { canLift, zonesOf, type LampMount } from "./model.ts";
 import { mountBase, packsVersion } from "./packs.ts";
 import { hasFeature, labOn, released } from "./features.ts";
@@ -1138,27 +1137,27 @@ export class Floorplan3dPanel extends LitElement {
   };
 
   private renderSecurityChip(b: Building) {
+    if (!this.hass) return nothing;
     const alarmEntity = findAlarmEntity(this.hass, b);
-    if (!alarmEntity || !this.hass) return nothing;
-    const st = this.hass.states[alarmEntity];
-    if (!st) return nothing;
-    const state = st.state;
-    if (state === "unavailable" || state === "unknown") return nothing;
-    const isTriggered = state === "triggered";
-    const isPending = state === "pending" || state === "arming";
-    const isArmed = state.startsWith("armed_");
-    const icon = isTriggered ? "🚨" : isPending ? "⏳" : isArmed ? "🔒" : "🛡️";
-    const stateKey = `alarm_state_${state}` as I18nKey;
-    const translated = this.t(stateKey);
-    const label = translated !== stateKey ? translated : state.replace("_", " ");
+    const st = alarmEntity ? this.hass.states[alarmEntity] : undefined;
+    let alarmLabel: string | undefined;
+    if (st && st.state !== "unavailable" && st.state !== "unknown") {
+      const stateKey = `alarm_state_${st.state}` as I18nKey;
+      const translated = this.t(stateKey);
+      alarmLabel = translated !== stateKey ? translated : st.state.replace(/_/g, " ");
+    }
+    const chip = securityChipModel(this.hass, b, alarmLabel);
+    if (!chip) return nothing;
+    const cls = chip.alertLevel === "alert" ? "fp3d-sec-triggered" : chip.alertLevel === "warn" ? "fp3d-sec-warn" : "";
 
     return html`<button
-      class="fp3d-chip fp3d-security-chip ${isTriggered ? "fp3d-sec-triggered" : ""}"
-      title="${entityName(this.hass, alarmEntity)}: ${label}"
-      aria-label="${entityName(this.hass, alarmEntity)}: ${label}"
-      @click=${() => openMoreInfo(this, alarmEntity)}
+      class="fp3d-chip fp3d-security-chip ${cls}"
+      aria-pressed=${this._mosaicOpen}
+      title=${chip.title}
+      aria-label=${chip.title}
+      @click=${() => (this._mosaicOpen = !this._mosaicOpen)}
     >
-      ${icon} ${label}
+      ${chip.icon} ${chip.label}
     </button>`;
   }
 
@@ -1443,11 +1442,6 @@ export class Floorplan3dPanel extends LitElement {
               : nothing}
           </div>
           ${this.renderSecurityChip(b)}
-          ${!hasFeature("camera_cockpit") && countMosaicCameras(this.hass, b) > 0
-            ? html`<button class="fp3d-chip" aria-pressed=${this._mosaicOpen} @click=${() => (this._mosaicOpen = !this._mosaicOpen)}>
-                📹 ${this.t("cameras_short")} (${countMosaicCameras(this.hass, b)})
-              </button>`
-            : nothing}
           ${hasFeature("time_travel")
             ? html`<button class="fp3d-chip fp3d-tt-chip" aria-pressed=${tt} title=${this.t("tt_hint")} @click=${() => this.toggleTimeTravel()}>
                 ⏪ ${this.t("tt_chip")}

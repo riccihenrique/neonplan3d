@@ -2,8 +2,7 @@
 
 import { zonesOf, type Building } from "./model.ts";
 import { roomsOnly, shownRoomIds } from "./rooms-filter.ts";
-import { confirmEntities, entityName, findAlarmEntity, haNavigate } from "./devices.ts";
-import { openMoreInfo } from "./markers.ts";
+import { confirmEntities, findAlarmEntity, haNavigate } from "./devices.ts";
 import { countView } from "./diagnostics.ts";
 import { css, html, LitElement, nothing, type PropertyValues } from "lit";
 import { BuildingController } from "./building-controller.ts";
@@ -13,7 +12,7 @@ import "./components/camera-mosaic.ts";
 import "./components/room-bar.ts";
 import "./components/room-panel.ts";
 import "./components/view3d.ts";
-import { countMosaicCameras } from "./camera-mosaic-data.ts";
+import { securityChipModel } from "./security-data.ts";
 import { languageReady, loadLanguage, translate, type I18nKey } from "./i18n.ts";
 import { controls, tokens } from "./styles.ts";
 import type { HomeAssistant } from "./types.ts";
@@ -442,27 +441,27 @@ clearTimeout(this.cleanTimer);
   }
 
   private renderSecurityChip(b: Building) {
+    if (!this.hass) return nothing;
     const alarmEntity = findAlarmEntity(this.hass, b);
-    if (!alarmEntity || !this.hass) return nothing;
-    const st = this.hass.states[alarmEntity];
-    if (!st) return nothing;
-    const state = st.state;
-    if (state === "unavailable" || state === "unknown") return nothing;
-    const isTriggered = state === "triggered";
-    const isPending = state === "pending" || state === "arming";
-    const isArmed = state.startsWith("armed_");
-    const icon = isTriggered ? "🚨" : isPending ? "⏳" : isArmed ? "🔒" : "🛡️";
-    const stateKey = `alarm_state_${state}` as I18nKey;
-    const translated = translate(this.hass, stateKey);
-    const label = translated !== stateKey ? translated : state.replace("_", " ");
+    const st = alarmEntity ? this.hass.states[alarmEntity] : undefined;
+    let alarmLabel: string | undefined;
+    if (st && st.state !== "unavailable" && st.state !== "unknown") {
+      const stateKey = `alarm_state_${st.state}` as I18nKey;
+      const translated = translate(this.hass, stateKey);
+      alarmLabel = translated !== stateKey ? translated : st.state.replace(/_/g, " ");
+    }
+    const chip = securityChipModel(this.hass, b, alarmLabel);
+    if (!chip) return nothing;
+    const cls = chip.alertLevel === "alert" ? "fp3d-sec-triggered" : chip.alertLevel === "warn" ? "fp3d-sec-warn" : "";
 
     return html`<button
-      class="fp3d-chip fp3d-security-chip ${isTriggered ? "fp3d-sec-triggered" : ""}"
-      title="${entityName(this.hass, alarmEntity)}: ${label}"
-      aria-label="${entityName(this.hass, alarmEntity)}: ${label}"
-      @click=${() => openMoreInfo(this, alarmEntity)}
+      class="fp3d-chip fp3d-security-chip ${cls}"
+      aria-pressed=${this._mosaicOpen}
+      title=${chip.title}
+      aria-label=${chip.title}
+      @click=${() => (this._mosaicOpen = !this._mosaicOpen)}
     >
-      ${icon} ${label}
+      ${chip.icon} ${chip.label}
     </button>`;
   }
 
@@ -674,15 +673,9 @@ clearTimeout(this.cleanTimer);
                   </button>`
                 : nothing}
               ${this.renderSecurityChip(b)}
-              ${c?.camera_wall
-                ? hasFeature("camera_cockpit")
-                  ? html`<button class="fp3d-chip" aria-pressed=${this._cameraWall} title=${t("camera_wall_hint")} @click=${() => (this._cameraWall = !this._cameraWall)}>${t("cameras_short")}</button>`
-                  : countMosaicCameras(this.hass, b) > 0
-                    ? html`<button class="fp3d-chip" aria-pressed=${this._mosaicOpen} @click=${() => (this._mosaicOpen = !this._mosaicOpen)}>📹 ${t("cameras_short")} (${countMosaicCameras(this.hass, b)})</button>`
-                    : nothing
-                : countMosaicCameras(this.hass, b) > 0
-                  ? html`<button class="fp3d-chip" aria-pressed=${this._mosaicOpen} @click=${() => (this._mosaicOpen = !this._mosaicOpen)}>📹 ${t("cameras_short")} (${countMosaicCameras(this.hass, b)})</button>`
-                  : nothing}
+              ${c?.camera_wall && hasFeature("camera_cockpit")
+                ? html`<button class="fp3d-chip" aria-pressed=${this._cameraWall} title=${t("camera_wall_hint")} @click=${() => (this._cameraWall = !this._cameraWall)}>${t("cameras_short")}</button>`
+                : nothing}
               ${shows("walls")
                 ? html`<div class="fp3d-seg">
                     <button aria-pressed=${walls === "auto"} @click=${() => this.setWalls("auto")}>${t("walls_auto")}</button>
