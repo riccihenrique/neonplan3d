@@ -69,6 +69,7 @@ ROOM_SCHEMA = vol.Schema(
         vol.Optional("cleaning"): vol.Any(None, vol.All(str, vol.Length(max=255))),
         vol.Required("points"): vol.All([_POINT], vol.Length(min=3, max=MAX_POINTS)),
         vol.Required("floor_material"): vol.All(str, vol.Length(max=32)),
+        vol.Optional("floor_color"): vol.Any(None, vol.All(str, vol.Length(max=16))),
         # the room's name moved from its middle in the plan and in 3D (metres; None = in the middle)
         vol.Optional("label_offset"): vol.Any(
             None, vol.All([vol.All(vol.Coerce(float), vol.Range(min=-100, max=100))], vol.Length(min=2, max=2))
@@ -581,6 +582,7 @@ OUTDOOR_SCHEMA = vol.Schema(
         # hedges and fences: their height (None = default); outline False hides the neon line
         vol.Optional("height", default=None): vol.Any(None, vol.All(vol.Coerce(float), vol.Range(min=0.1, max=6))),
         vol.Optional("outline", default=True): bool,
+        vol.Optional("floor_color", default=None): vol.Any(None, vol.All(str, vol.Length(max=16))),
         # height offset in m (a driveway down to a lower garage, a raised terrace)
         # (None = 0: the editor clears the field when it is set back to 0, #242)
         vol.Optional("offset", default=0.0): vol.Any(None, vol.All(vol.Coerce(float), vol.Range(min=-10, max=10))),

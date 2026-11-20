@@ -292,7 +292,9 @@ export function buildFloorGeometry(
     if (room.points.length < 3) continue;
     const poly = ccw(room.points);
     const look = FLOOR_LOOK[room.floor_material] ?? FLOOR_LOOK.wood;
-    const top = new Color(look.color);
+    const floorHex = hexColor(room.floor_color);
+    const roomFloorColor = floorHex ?? look.color;
+    const top = new Color(roomFloorColor);
     // an opening snapped to the room's edge is still cut, a few millimetres in from it
     // an opening across a room line is cut in every room it covers: here, the part inside this room (#353)
     // the openings are clipped one by one and only then merged: an opening joined with the stairs' own hole before
@@ -316,7 +318,7 @@ export function buildFloorGeometry(
       const c = all[l];
       floorBuf.tri([a[0], 0, a[1]], [c[0], 0, c[1]], [b[0], 0, b[1]], top, top, top, [a[0], a[1], c[0], c[1], b[0], b[1]], ALWAYS, look.tile);
     }
-    roomTris.push({ roomId: room.id, start, end: floorBuf.count, color: look.color });
+    roomTris.push({ roomId: room.id, start, end: floorBuf.count, color: roomFloorColor });
     const slab = new Color(NEON.slab);
     const sides = (ring: Vec2[]) => {
       for (let i = 0; i < ring.length; i++) {

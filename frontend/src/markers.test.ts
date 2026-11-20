@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { cameraMotionSensors, detectionKind, buildMarkers, setCameraSensors, stateText } from "./markers.ts";
+import { cameraMotionSensors, dedupeLightPins, detectionKind, buildMarkers, setCameraSensors, stateText } from "./markers.ts";
 import type { Building } from "./model.ts";
 import { emptyBuilding, newFloor } from "./model.ts";
 import type { HassEntity, HomeAssistant } from "./types.ts";
@@ -104,4 +104,20 @@ test("a camera counts its own device's detection sensors, or exactly the ones ch
   setCameraSensors(b);
   assert.deepEqual(cameraMotionSensors(hass, "camera.einfahrt"), ["binary_sensor.frigate_person"]);
   setCameraSensors(null);
+});
+
+test("dedupeLightPins collapses duplicate light pins on the same entity into one centroid pin", () => {
+  const markers = [
+    { id: "light.garden", floorId: "eg", x: 0, z: 0, lamp: "garden" as const, pin: true },
+    { id: "light.garden", floorId: "eg", x: 2, z: 0, lamp: "garden" as const, pin: true },
+    { id: "light.garden", floorId: "eg", x: 4, z: 0, lamp: "garden" as const, pin: true },
+    { id: "light.garden", floorId: "eg", x: 10, z: 0, lamp: "garden" as const, pin: true },
+    { id: "sensor.temp", floorId: "eg", x: 1, z: 1, lamp: null, pin: true },
+  ];
+  const deduped = dedupeLightPins(markers);
+  // Centroid of (0,2,4,10) is x=4, so the pin at x=4 stays true and the other 3 become false
+  assert.deepEqual(
+    deduped.map((m) => m.pin),
+    [false, false, true, false, true],
+  );
 });

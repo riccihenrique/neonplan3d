@@ -158,6 +158,49 @@ export function openMoreInfo(from: HTMLElement, entityId: string): void {
   from.dispatchEvent(new CustomEvent("hass-more-info", { detail: { entityId }, bubbles: true, composed: true }));
 }
 
+/**
+ * Collapses duplicate pins when multiple light fixtures or placements on the same floor
+ * share one entity_id (e.g. 4 garden spots on light.jardim), keeping a single pin
+ * closest to the group's centroid while preserving every fixture's 3D mesh and light cone.
+ */
+export function dedupeLightPins<T extends Pick<DeviceMarker, "id" | "floorId" | "x" | "z" | "lamp" | "pin">>(markers: T[]): T[] {
+  const groups = new Map<string, number[]>();
+  markers.forEach((m, i) => {
+    if (m.pin === false) return;
+    if (!m.lamp && kindOf(m.id) !== "light") return;
+    if (m.id.startsWith("lamp:")) return;
+    const key = `${m.floorId}:${m.id}`;
+    const list = groups.get(key);
+    if (list) list.push(i);
+    else groups.set(key, [i]);
+  });
+  if (![...groups.values()].some((g) => g.length > 1)) return markers;
+  const keep = new Set<number>();
+  for (const idxs of groups.values()) {
+    if (idxs.length <= 1) continue;
+    const cx = idxs.reduce((s, i) => s + markers[i].x, 0) / idxs.length;
+    const cz = idxs.reduce((s, i) => s + markers[i].z, 0) / idxs.length;
+    let best = idxs[0];
+    let bestD = Infinity;
+    for (const i of idxs) {
+      const d = Math.hypot(markers[i].x - cx, markers[i].z - cz);
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    keep.add(best);
+  }
+  return markers.map((m, i) => {
+    if (m.pin === false) return m;
+    if (!m.lamp && kindOf(m.id) !== "light") return m;
+    if (m.id.startsWith("lamp:")) return m;
+    const idxs = groups.get(`${m.floorId}:${m.id}`);
+    if (!idxs || idxs.length <= 1 || keep.has(i)) return m;
+    return { ...m, pin: false };
+  });
+}
+
 /** Toggle an entity with its own domain's toggle service (light.toggle, switch.toggle, …). */
 export function toggleEntity(hass: HomeAssistant, entityId: string): Promise<unknown> {
   const domain = entityId.slice(0, entityId.indexOf("."));

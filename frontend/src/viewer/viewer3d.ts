@@ -31,6 +31,17 @@ export { FloorMap, WalkCamera, type WalkState } from "./walk.ts";
 export const funLib = { Group, Mesh, MeshBasicMaterial, CanvasTexture, Color, PlaneGeometry, BufferGeometry: Geometry, Float32BufferAttribute, DoubleSide };
 
 export type { PipeTube };
+export interface AcFlowState {
+  id: string;
+  floorId: string;
+  x: number;
+  z: number;
+  y: number;
+  w: number;
+  d: number;
+  rotation: number;
+  mode: "cool" | "heat" | "fan";
+}
 import { groundUnder, isCooktopZone, mountBase, packItem, packMotion, packSpinAxis, setPacks, type FurniturePack } from "../packs.ts";
 import { withVehicles } from "../parking.ts";
 import { buildRoof, type RoofGeometry, type RoofWindowState } from "./roof.ts";
@@ -710,6 +721,8 @@ export class FloorplanViewer {
   private liveLast = 0;
   private fanLast = 0;
   private fanTimer: ReturnType<typeof setTimeout> | undefined;
+  private acFlows = new Map<string, { group: Group; waves: { mesh: Mesh; mat: MeshBasicMaterial; offset: number }[]; floorId: string; mode: "cool" | "heat" | "fan"; w: number; d: number }>();
+  private acFlowGeo: PlaneGeometry | null = null;
   private floorStack: FloorStack = "dim";
   /** Floors by id, and per-frame bookkeeping so labels are only placed when something moved. */
   private floorMap = new Map<string, FloorView>();
@@ -2660,6 +2673,10 @@ export class FloorplanViewer {
     for (const f of this.fans.values()) f.mesh.geometry.dispose();
     this.fans.clear();
     this.fanMat?.dispose();
+    for (const ac of this.acFlows.values()) for (const wv of ac.waves) wv.mat.dispose();
+    this.acFlows.clear();
+    this.acFlowGeo?.dispose();
+    this.acFlowGeo = null;
     for (const f of this.packSpins.values()) f.mesh.geometry.dispose();
     this.packSpins.clear();
     this.spinMat?.dispose();
@@ -2787,6 +2804,7 @@ export class FloorplanViewer {
     // robots share one geometry: keep them out of the floor groups while those are disposed
     for (const r of this.robots.values()) r.group.removeFromParent();
     for (const f of this.fans.values()) f.group.removeFromParent();
+    for (const ac of this.acFlows.values()) ac.group.removeFromParent();
     for (const f of this.packSpins.values()) f.group.removeFromParent();
     for (const l of this.packLive.values()) l.group.removeFromParent();
     for (const fv of this.floors) {
@@ -5931,6 +5949,70 @@ export class FloorplanViewer {
     return turning;
   }
 
+  /** Set active air-conditioner airflow animations (cooling blue, heating amber, fan soft white). */
+  setAcFlows(flows: AcFlowState[]): void {
+    const seen = new Set<string>();
+    const modeColor = (mode: AcFlowState["mode"]) => (mode === "cool" ? 0x38bdf8 : mode === "heat" ? 0xfb923c : 0xe2e8f0);
+    for (const f of flows) {
+      seen.add(f.id);
+      let entry = this.acFlows.get(f.id);
+      if (entry && (entry.mode !== f.mode || Math.abs(entry.w - f.w) > 0.01)) {
+        entry.group.removeFromParent();
+        for (const wv of entry.waves) wv.mat.dispose();
+        this.acFlows.delete(f.id);
+        entry = undefined;
+      }
+      if (!entry) {
+        this.acFlowGeo ??= new PlaneGeometry(1, 0.08);
+        const group = new Group();
+        const color = modeColor(f.mode);
+        const waves = [0, 1 / 3, 2 / 3].map((offset) => {
+          const mat = new MeshBasicMaterial({ color, transparent: true, opacity: 0, depthWrite: false, side: DoubleSide });
+          const mesh = new Mesh(this.acFlowGeo!, mat);
+          mesh.rotation.x = -0.55;
+          group.add(mesh);
+          return { mesh, mat, offset };
+        });
+        entry = { group, waves, floorId: f.floorId, mode: f.mode, w: f.w, d: f.d };
+        this.acFlows.set(f.id, entry);
+      }
+      entry.floorId = f.floorId;
+      entry.group.position.set(f.x, f.y, f.z);
+      entry.group.rotation.y = -(f.rotation * DEG);
+    }
+    for (const [id, ac] of this.acFlows) {
+      if (seen.has(id)) continue;
+      ac.group.removeFromParent();
+      for (const wv of ac.waves) wv.mat.dispose();
+      this.acFlows.delete(id);
+    }
+  }
+
+  /** Animate active AC airflow ribbons drifting gently out into the room; true while any AC runs. */
+  private stepAcFlows(now: number): boolean {
+    if (!this.acFlows.size) return false;
+    const t = (now / 1600) % 1;
+    let active = false;
+    for (const ac of this.acFlows.values()) {
+      const fv = this.floorMap.get(ac.floorId);
+      if (!fv) continue;
+      if (ac.group.parent !== fv.group) fv.group.add(ac.group);
+      const cut = this.wallMode === "cut" && ac.group.position.y > Math.min(fv.floor.cut_height, fv.floor.height);
+      ac.group.visible = !cut;
+      if (cut) continue;
+      active = true;
+      const baseW = Math.max(0.45, ac.w * 0.78);
+      for (const wv of ac.waves) {
+        const phase = (t + wv.offset) % 1;
+        const dist = 0.06 + phase * 0.85;
+        wv.mesh.position.set(0, -phase * 0.52, ac.d / 2 + dist);
+        wv.mesh.scale.set(baseW * (0.88 + phase * 0.48), 1 + phase * 0.8, 1);
+        wv.mat.opacity = Math.sin(phase * Math.PI) * 0.42;
+      }
+    }
+    return active;
+  }
+
   /** Move the robots; true while one of them drives. */
   private stepRobots(now: number): boolean {
     if (!this.robots.size) return false;
@@ -6127,6 +6209,7 @@ export class FloorplanViewer {
     const roofMoving = this.placeRoof(dt);
     const robotsMoving = this.stepRobots(now);
     const fansTurning = this.stepFans(now);
+    const acMoving = this.stepAcFlows(now);
     const liveMoving = this.stepLive(now);
     const weatherMoving = this.stepWeather(now);
     const moving = cameraMoving || floorsMoving || openingsMoving || flashing || roofMoving || morphMoving;
@@ -6144,6 +6227,7 @@ export class FloorplanViewer {
     if (this.effectTick) busy.push("effect");
     if (robotsMoving) busy.push("robot");
     if (fansTurning) busy.push("fan");
+    if (acMoving) busy.push("ac");
     if (liveMoving) busy.push("live");
     if (orbiting) busy.push("orbit");
     if (this.tintTick) busy.push("tint");

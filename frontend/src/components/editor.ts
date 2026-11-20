@@ -6994,6 +6994,19 @@ export class Fp3dEditor extends LitElement {
     </div>`;
   }
 
+  private renderFloorColorPicker(color: string | null, fallbackHex: string, onChange: (c: string | null) => void) {
+    return html`<div class="fp3d-field fp3d-wide">
+      <div class="fp3d-wall-all">
+        <span>🎨 ${this.t("floor_color")}</span>
+        <input type="color" ?disabled=${!this.isAdmin} .value=${color ?? fallbackHex} @change=${(e: Event) => onChange((e.target as HTMLInputElement).value)} />
+        ${this.isAdmin && color ? html`<button class="fp3d-btn" title=${this.t("color_reset")} @click=${() => onChange(null)}>↺</button>` : nothing}
+      </div>
+      <div class="fp3d-swatches">
+        ${FLOOR_SWATCHES.map(([name, hex]) => html`<button class="fp3d-swatch" title=${name} style="background:${hex}" ?disabled=${!this.isAdmin} @click=${() => onChange(hex)}></button>`)}
+      </div>
+    </div>`;
+  }
+
   private renderOutdoorForm(a: OutdoorArea) {
     const admin = this.isAdmin;
     const rect = isAxisRect(a.points);
@@ -7036,6 +7049,9 @@ export class Fp3dEditor extends LitElement {
               >`
           : nothing}
         ${a.type === "pool" ? this.renderPoolShape(a) : nothing}
+        ${!outdoorStanding(a.type) && a.type !== "pool" && a.type !== "lawn" && a.type !== "wild" && a.type !== "bed"
+          ? this.renderFloorColorPicker(a.floor_color ?? null, "#9a9894", (c) => this.updateOutdoor({ floor_color: c }))
+          : nothing}
         <label class="fp3d-check fp3d-wide" title=${this.t("outdoor_outline_hint")}
           ><input type="checkbox" .checked=${a.outline !== false} ?disabled=${!admin} @change=${(ev: Event) => this.updateOutdoor({ outline: (ev.target as HTMLInputElement).checked ? undefined : false })} />
           ${this.t("outdoor_outline")}</label
@@ -11346,6 +11362,7 @@ export class Fp3dEditor extends LitElement {
             ${FLOOR_MATERIALS.map((m) => html`<option value=${m} ?selected=${m === room.floor_material}>${this.t(`mat_${m}` as I18nKey)}</option>`)}
           </select></label
         >
+        ${this.renderFloorColorPicker(room.floor_color ?? null, "#e5e3de", (c) => this.updateRoom({ floor_color: c }))}
         ${rect
           ? html`${this.len(this.t("x"), b.x0, (v) => this.setRect("x", v))} ${this.len(this.t("z"), b.z0, (v) => this.setRect("z", v))}
             ${this.len(this.t("width"), b.x1 - b.x0, (v) => this.setRect("w", v), 0.01, 0.05)}
@@ -18243,6 +18260,15 @@ const WALL_SWATCHES: [string, string][] = [
   ["Terrakotta / Terracotta", "#c27b5a"],
   ["Rauchblau / Smoke blue", "#8fa3b8"],
   ["Anthrazit / Anthracite", "#4a4e55"],
+];
+
+const FLOOR_SWATCHES: [string, string][] = [
+  ["Porcelanato Branco", "#e5e3de"],
+  ["Off-White / Satin", "#ede9e0"],
+  ["Cinza Claro", "#c4c2bd"],
+  ["Porcelanato Cinza (Externo)", "#9a9894"],
+  ["Cinza Grafite", "#686764"],
+  ["Bege Arena", "#d9cdb8"],
 ];
 
 /** The classic looks as a palette, the start of an own style made from one of them. */

@@ -133,7 +133,7 @@ import { coverPositionable, lightAbilities } from "./quick-menu.ts";
 import "./quick-menu.ts";
 import { load3d } from "../load3d.ts";
 import { loadFun } from "../load-fun.ts";
-import { detectionKind, scaleGlow, buildMarkers, cameraMotionSensors, openMoreInfo, setCameraSensors, stateText, toggleEntity } from "../markers.ts";
+import { dedupeLightPins, detectionKind, scaleGlow, buildMarkers, cameraMotionSensors, openMoreInfo, setCameraSensors, stateText, toggleEntity } from "../markers.ts";
 import { activeSections, roofUnderAt, sectionAbove, sectionCutsBelow } from "../roof-sections.ts";
 import { centroid, furnitureFootprint, gangEntities, gangsOf, GANG_TYPES, STAIR_TYPES, TECH_TYPES, isLamp, setTerrain, poolFloorY, LAMP_MODEL, LIFT_SPOTS, outdoorGround, pointInPolygon, poolWaterY, spotDepth, surfaceHeight, zonesOf, type Building, type Floor, type Furniture, type Pet, type StartView } from "../model.ts";
 
@@ -147,7 +147,7 @@ import { controls, tokens } from "../styles.ts";
 import type { HassEntity, HomeAssistant } from "../types.ts";
 import { countView, diagnosticsActive, recordFrame, watchDiagnostics } from "../diagnostics.ts";
 import { GUARD_VERSION, gpuSafeMode, noteContextLost } from "../gpu-guard.ts";
-import type { DeviceMarker, FloorplanViewer, FloorStack, PersonPin, RobotInfo, Quality, ScreenState, SoundSource, SurfaceGrab, ViewerStats, WallMode } from "../viewer/viewer3d.ts";
+import type { AcFlowState, DeviceMarker, FloorplanViewer, FloorStack, PersonPin, RobotInfo, Quality, ScreenState, SoundSource, SurfaceGrab, ViewerStats, WallMode } from "../viewer/viewer3d.ts";
 import { wallLayout } from "../camera-wall.ts";
 import { watchedEntities } from "../watched.ts";
 import { backdropCss } from "../backdrop.ts";
@@ -1364,20 +1364,22 @@ export class Fp3dView3d extends LitElement {
       hasFeature("auto_pro") ? b.floors.flatMap((fl) => fl.furniture.filter((f) => f.type === "parking" && f.car && parkedVehicle(hass, f)).map((f) => f.id)) : [],
     );
     v.setDevices([
-      ...[...deviceMarkers, ...furniture.markers, ...this.lockMarkers(hass, b)].map((m) => {
-        // "without watts" drops the power badge (a plug shows only on / off)
-        // below an item's own "running from" watts the standby draw is no badge either (#645)
-        const power = m.show === "no_power" || ("energyDevice" in m && m.energyDevice) || ("standby" in m && m.standby) ? null : (byDevice.get(m.id) ?? null);
-        // at night (kiosk) colour effects rest
-        const marker = { ...m, power, powerText: power === null ? undefined : formatPower(hass, power), effect: this.dimmed ? false : m.effect };
-        // the own name under the pin: per device, or for every named device (card option marker_names)
-        const caption = m.ownName && (m.showName || this.markerNames) ? m.ownName : "";
-        // Klang & Kino: while a card floats over the speaker, its pin steps aside (it comes back when the music stops)
-        // (only while the cards show at all: else the pin stays – it vanished with no card in its place)
-        const carded = this.cardsOn() && ((hasFeature("sound") && this.mediaCardUp(hass, m.id)) || (hasFeature("auto_pro") && !!m.furnitureId && carSpots.has(m.furnitureId)));
-        // a lock at its door asks for its text itself (full): the symbol mode does not take that away
-        return { ...marker, pin: this.showPin(marker) && !carded, full: m.show === "always" || m.full === true, caption };
-      }),
+      ...dedupeLightPins(
+        [...deviceMarkers, ...furniture.markers, ...this.lockMarkers(hass, b)].map((m) => {
+          // "without watts" drops the power badge (a plug shows only on / off)
+          // below an item's own "running from" watts the standby draw is no badge either (#645)
+          const power = m.show === "no_power" || ("energyDevice" in m && m.energyDevice) || ("standby" in m && m.standby) ? null : (byDevice.get(m.id) ?? null);
+          // at night (kiosk) colour effects rest
+          const marker = { ...m, power, powerText: power === null ? undefined : formatPower(hass, power), effect: this.dimmed ? false : m.effect };
+          // the own name under the pin: per device, or for every named device (card option marker_names)
+          const caption = m.ownName && (m.showName || this.markerNames) ? m.ownName : "";
+          // Klang & Kino: while a card floats over the speaker, its pin steps aside (it comes back when the music stops)
+          // (only while the cards show at all: else the pin stays – it vanished with no card in its place)
+          const carded = this.cardsOn() && ((hasFeature("sound") && this.mediaCardUp(hass, m.id)) || (hasFeature("auto_pro") && !!m.furnitureId && carSpots.has(m.furnitureId)));
+          // a lock at its door asks for its text itself (full): the symbol mode does not take that away
+          return { ...marker, pin: this.showPin(marker) && !carded, full: m.show === "always" || m.full === true, caption };
+        }),
+      ),
       // Energie Pro: the street end of the grid cable carries a pin with what comes in or goes out
       ...(pro && (this.flows ?? this._flows) && !this.dimmed && summary.grid !== null ? [this.gridPin(hass, b, summary.grid)] : []).filter((m): m is NonNullable<typeof m> => !!m),
       // Kamera-Cockpit: what a camera detects right now stands in front of it as a pin
@@ -1406,6 +1408,7 @@ export class Fp3dView3d extends LitElement {
     v.setTrail(trail, this.replay ? this.robotPaths(hass, b) : []);
     v.setPickTargets(furniture.targets, this.openingTargets());
     v.setScreens(furniture.screens);
+    v.setAcFlows(furniture.acFlows);
     v.setFridgeDoors(fridgeDoors(hass, b.floors));
     v.setAwnings(awningStates(hass, b.floors));
     v.setProjections(this.projectedCameras(hass, b));
@@ -2958,11 +2961,12 @@ export class Fp3dView3d extends LitElement {
     b: Building,
     taken: Set<string>,
     consumerSensors: Set<string>,
-  ): { markers: (DeviceMarker & { fromFurniture: boolean; energyDevice?: boolean; standby?: boolean })[]; consumers: Consumer[]; screens: Map<string, ScreenState>; targets: Map<string, string> } {
+  ): { markers: (DeviceMarker & { fromFurniture: boolean; energyDevice?: boolean; standby?: boolean })[]; consumers: Consumer[]; screens: Map<string, ScreenState>; targets: Map<string, string>; acFlows: AcFlowState[] } {
     const markers: (DeviceMarker & { fromFurniture: boolean; energyDevice?: boolean; standby?: boolean })[] = [];
     const consumers: Consumer[] = [];
     const screens = new Map<string, ScreenState>();
     const targets = new Map<string, string>();
+    const acFlows: AcFlowState[] = [];
     // devices placed on their own keep their pin; two pieces of furniture on one entity (a copy) each get theirs, like lamps (#688)
     const placed = new Set(taken);
     // Haushalt Pro: what is due now, for the glass card
@@ -3192,6 +3196,29 @@ export class Fp3dView3d extends LitElement {
         } else if (f.type === "ac_unit" && st && kindOf(st.entity_id) === "climate") {
           const glow = climateModeGlow(st);
           if (glow) screens.set(f.id, glow);
+          const action = String(st.attributes.hvac_action ?? "").toLowerCase();
+          const stMode = String(st.state ?? "").toLowerCase();
+          const flowMode: AcFlowState["mode"] | null =
+            action === "cooling" || (!action && stMode === "cool")
+              ? "cool"
+              : action === "heating" || (!action && stMode === "heat")
+                ? "heat"
+                : action === "fan" || action === "drying" || (!action && (stMode === "fan_only" || stMode === "dry"))
+                  ? "fan"
+                  : null;
+          if (flowMode) {
+            acFlows.push({
+              id: f.id,
+              floorId: floor.id,
+              x: f.x,
+              z: f.z,
+              y: (f.mount_y ?? 2.05) + 0.03,
+              w: f.w,
+              d: f.d,
+              rotation: f.rotation,
+              mode: flowMode,
+            });
+          }
         } else if (applianceKind && running) {
           screens.set(f.id, runGlow(applianceKind));
         } else if (f.type === "stove" || isPackCooktop(f.type)) {
@@ -3345,7 +3372,7 @@ export class Fp3dView3d extends LitElement {
       if (sp.popup) targets.set(sp.furnitureId, `popup:${sp.popup}`);
     }
     this.watchCameras(this.cameraScreens > 0 || !!this._through || this.cameraWall || this.projecting);
-    return { markers, consumers, screens, targets };
+    return { markers, consumers, screens, targets, acFlows };
   }
 
   /**

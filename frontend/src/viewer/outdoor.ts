@@ -8,7 +8,7 @@ import { Color } from "three";
 import type { Floor, GateSpan, OutdoorArea, OutdoorType, Vec2 } from "../model.ts";
 import { areaGround, bounds, centroid, gateSpans, groundDrop, isAxisRect, OUTDOOR_TOP, outdoorStanding, pointInPolygon, poolFloorY, poolRimY, poolSunken, poolWaterY, signedArea } from "../model.ts";
 import { ALWAYS, type GeoBuffer, type LineBuffer, pushPrism, shade, triangulate } from "./geo.ts";
-import { palette } from "./palette.ts";
+import { hexColor, palette } from "./palette.ts";
 
 interface Look {
   color: number;
@@ -190,7 +190,12 @@ export function pushOutdoor(buf: GeoBuffer, lines: LineBuffer, floor: Floor, wat
     const lowest = g - (a.type === "pool" ? 0 : (a.slope ?? 0));
     // hedges, fences and pergolas take their own height; the outline can be switched off per area
     const own = outdoorStanding(a.type) && a.height ? a.height : OUTDOOR_TOP[a.type];
-    const look = { ...LOOKS[a.type], top: own };
+    const customFloor = hexColor(a.floor_color);
+    const look = {
+      ...LOOKS[a.type],
+      ...(customFloor !== null ? { color: customFloor, side: shade(customFloor, 0.85).getHex() } : {}),
+      top: own,
+    };
     const poly = ccw(a.points);
     const edge = shade(look.edge, look.edgeAlpha);
     // fences and pergolas may leave their closing edge out (leaning against the house)

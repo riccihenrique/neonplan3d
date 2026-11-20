@@ -34,6 +34,8 @@ export interface Room {
   start_view?: StartView | null;
   points: Vec2[];
   floor_material: string;
+  /** Custom hex colour ("#rrggbb") overriding the floor material tint in 3D (e.g. white or grey porcelain). */
+  floor_color?: string | null;
   /**
    * The room's name moved from its middle in the plan and in 3D, in metres (null: in the middle) – where names of
    * small rooms would cover each other. An offset, so it moves along with the room.
@@ -1140,6 +1142,8 @@ export interface OutdoorArea {
   height?: number | null;
   /** False hides the neon outline (a plot of several lawns without lines crossing it). */
   outline?: boolean;
+  /** Custom hex colour ("#rrggbb") overriding the outdoor surface colour (e.g. external porcelain). */
+  floor_color?: string | null;
   /** Height offset in m: a driveway piece in front of a lower garage sits below the ground (negative), a raised terrace above. */
   offset?: number | null;
   /** Fall in m across the area along slope_dir (a driveway down to the garage, a sloping lawn); the high edge sits at the offset. */
