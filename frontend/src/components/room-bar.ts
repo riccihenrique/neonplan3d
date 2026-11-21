@@ -3,17 +3,15 @@
 // (the room panel opens); a tap on its lights switches them off. Plain tiles, no 3D work: fine on old wall tablets.
 import { css, html, LitElement, nothing, svg } from "lit";
 import { entityName, isUnavailable } from "../devices.ts";
-import { formatNumber, translate, type I18nKey } from "../i18n.ts";
-import { iconPath } from "../icons.ts";
+import { translate, type I18nKey } from "../i18n.ts";
 import type { Building } from "../model.ts";
-import { favoriteTiles, lightCall, roomTiles, type RoomTile } from "../room-bar.ts";
+import { favoriteTiles, roomTiles } from "../room-bar.ts";
 import { controls, tokens } from "../styles.ts";
 import type { HomeAssistant } from "../types.ts";
 
 const MIN_KEY = "neonplan3d.roombar_min";
 
-/** A window (the line icons have none of their own) and a play triangle, drawn like the line icons. */
-const WINDOW = "M5 4h14v16H5zM12 4v16M5 12h14";
+/** A play triangle, drawn like the line icons. */
 const PLAY = "M8 5.5v13l10.5-6.5z";
 const icon = (d: string) => html`<svg class="fp3d-rb-ico" viewBox="0 0 24 24" aria-hidden="true">${svg`<path d=${d} />`}</svg>`;
 
@@ -70,14 +68,6 @@ export class Fp3dRoomBar extends LitElement {
     }
   }
 
-  /** The room's light switch on its card: all off when any is on, else all on (it never flies into the room). */
-  private toggleLights(e: Event, tile: RoomTile): void {
-    e.stopPropagation();
-    if (this.readOnly) return;
-    const [service, ids] = lightCall(tile);
-    if (ids.length) void this.hass.callService("light", service, { entity_id: ids });
-  }
-
   private pick(floorId: string, roomId: string): void {
     this.dispatchEvent(new CustomEvent("room-pick", { detail: { floorId, roomId }, bubbles: true, composed: true }));
   }
@@ -116,41 +106,14 @@ export class Fp3dRoomBar extends LitElement {
       })}
       ${favs.length && rooms.length ? html`<span class="fp3d-rb-sep" aria-hidden="true"></span>` : nothing}
       ${rooms.map((r) => {
-        const quiet = r.temp === null && !r.lights.length && !r.open && !r.playing;
-        const lit = r.lightsOn.length > 0;
-        return html`<div
-          class="fp3d-rb-card ${quiet ? "fp3d-rb-quiet" : ""} ${r.active ? "fp3d-rb-active" : ""} ${r.roomId === this.roomId ? "fp3d-rb-sel" : ""}"
-          role="button"
-          tabindex="0"
+        return html`<button
+          class="fp3d-chip fp3d-rb-pill ${r.roomId === this.roomId ? "fp3d-rb-sel" : ""}"
           title=${house ? `${r.name} · ${floorName(r.floorId)}` : r.name}
           aria-pressed=${r.roomId === this.roomId}
           @click=${() => this.pick(r.floorId, r.roomId)}
-          @keydown=${(e: KeyboardEvent) => e.target === e.currentTarget && (e.key === "Enter" || e.key === " ") && (e.preventDefault(), this.pick(r.floorId, r.roomId))}
         >
-          <div class="fp3d-rb-top">
-            <b class="fp3d-rb-name">${r.name}</b>
-            ${r.temp === null ? nothing : html`<span class="fp3d-rb-temp">${formatNumber(hass, r.temp, 1)}°</span>`}
-          </div>
-          <div class="fp3d-rb-row">
-            ${house ? html`<span class="fp3d-rb-floor">${floorName(r.floorId)}</span>` : nothing}
-            ${r.humidity === null ? nothing : html`<span>${formatNumber(hass, r.humidity, 0)} %</span>`}
-            ${r.open ? html`<span class="fp3d-rb-state fp3d-rb-win" title=${this.t("room_bar_open")}>${icon(WINDOW)}${r.open > 1 ? r.open : ""}</span>` : nothing}
-            ${r.playing ? html`<span class="fp3d-rb-state fp3d-rb-play" title=${this.t("room_bar_playing")}>${icon(PLAY)}</span>` : nothing}
-          </div>
-          ${r.lights.length
-            ? html`<button
-                class="fp3d-rb-switch"
-                role="switch"
-                aria-checked=${lit}
-                aria-label=${`${this.t("room_bar_light")} ${r.name}`}
-                ?disabled=${this.readOnly}
-                @click=${(e: Event) => this.toggleLights(e, r)}
-                @keydown=${(e: KeyboardEvent) => e.stopPropagation()}
-              >
-                <span>${icon(iconPath("light"))} ${lit ? `${this.t("room_bar_light")} · ${this.t("room_bar_lights", { n: r.lightsOn.length })}` : this.t("room_bar_light")}</span><i aria-hidden="true"></i>
-              </button>`
-            : html`<div class="fp3d-rb-switch-gap"></div>`}
-        </div>`;
+          ${r.name}
+        </button>`;
       })}
     </div>`;
   }
