@@ -421,6 +421,18 @@ export function buildOpeningParts(infos: readonly OpeningInfo[], states: Readonl
           splitBox(frames, leafTf, 0.05, lw - 0.05, -thick, 0, 0.01, 0.12, leafC, leafTop, cut, leafBucket);
           splitBox(frames, leafTf, 0.05, lw - 0.05, -thick, 0, T - 0.08, T - 0.01, leafC, leafTop, cut, leafBucket);
           panel(glass, leafTf, 0.05, lw - 0.05, -thick / 2, 0.12, T - 0.08, OP.GLASS, cut, leafBucket);
+        } else if (info.opening.style === "bars") {
+          // open-slat / bars gate: slim outer frame with vertical metal bars
+          splitBox(frames, leafTf, 0, 0.05, -thick, 0, 0.01, T - 0.01, leafC, leafTop, cut, leafBucket);
+          splitBox(frames, leafTf, lw - 0.05, lw, -thick, 0, 0.01, T - 0.01, leafC, leafTop, cut, leafBucket);
+          splitBox(frames, leafTf, 0.05, lw - 0.05, -thick, 0, 0.01, 0.06, leafC, leafTop, cut, leafBucket);
+          splitBox(frames, leafTf, 0.05, lw - 0.05, -thick, 0, T - 0.06, T - 0.01, leafC, leafTop, cut, leafBucket);
+          const span = Math.max(0.1, lw - 0.14);
+          const count = Math.max(2, Math.round(span / 0.12));
+          for (let k = 0; k <= count; k++) {
+            const bx = 0.07 + (span * k) / count;
+            splitBox(frames, leafTf, bx - 0.012, bx + 0.012, -thick * 0.75, -thick * 0.25, 0.06, T - 0.06, leafC, leafTop, cut, leafBucket);
+          }
         } else {
           splitBox(frames, leafTf, 0, lw, -thick, 0, 0.01, T - 0.01, leafC, leafTop, cut, leafBucket);
         }

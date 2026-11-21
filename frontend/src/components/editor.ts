@@ -11613,7 +11613,7 @@ export class Fp3dEditor extends LitElement {
   }
 
   private renderStyleSelect(o: Opening) {
-    const styles: readonly OpeningStyle[] = o.type === "door" ? DOOR_STYLES : WINDOW_STYLES;
+    const styles: readonly OpeningStyle[] = o.type === "door" ? [...DOOR_STYLES, "bars"] : WINDOW_STYLES;
     const auto = openingStyle({ type: o.type, style: null }, this.openingIsExterior(o));
     const current = o.style && (styles as readonly string[]).includes(o.style) ? o.style : "";
     return html`<label class="fp3d-field fp3d-wide"
