@@ -5987,6 +5987,7 @@ export class FloorplanViewer {
       for (const wv of ac.waves) wv.mat.dispose();
       this.acFlows.delete(id);
     }
+    if (this.acFlows.size || seen.size) this.invalidate();
   }
 
   /** Animate active AC airflow ribbons drifting gently out into the room; true while any AC runs. */
@@ -6259,7 +6260,7 @@ export class FloorplanViewer {
     this.watchSlow(now, cameraMoving || this.controls.busy);
     if (moving) this.invalidate();
     // tablet level: something new began to move (music, a robot, the energy flow …) – it shows for a while
-    const decorNow = this.flowActive || this.solarActive || this.soundActive || this.poolActive || robotsMoving || fansTurning || this.effectFloors.size > 0;
+    const decorNow = this.flowActive || this.solarActive || this.soundActive || this.poolActive || robotsMoving || fansTurning || acMoving || this.effectFloors.size > 0;
     if (decorNow && !this.decorWas) this.lastWake = now;
     this.decorWas = decorNow;
     // colour effects: a few steps per second are enough and keep the tablet idle in between; while the view turns
@@ -6301,7 +6302,7 @@ export class FloorplanViewer {
         this.invalidate();
       }, 33);
     }
-    const flowing = this.flowActive || this.solarActive || this.soundActive || this.poolActive;
+    const flowing = this.flowActive || this.solarActive || this.soundActive || this.poolActive || acMoving;
     if (this.lowQuality) {
       // tablet level: every decorative animation shares one frame about 5 times a second (12 while fan blades turn,
       // fewer would make them seem to stand or turn back) and rests 30 s after the last touch
