@@ -11769,6 +11769,13 @@ export class Fp3dEditor extends LitElement {
                 <option value="sectional" ?selected=${o.garage_kind !== "tilt"}>${this.t("garage_sectional")}</option>
                 <option value="tilt" ?selected=${o.garage_kind === "tilt"}>${this.t("garage_tilt")}</option>
               </select></label
+            >
+            <label class="fp3d-field fp3d-wide"
+              >${this.t("opening_style")}
+              <select ?disabled=${!admin} @change=${(e: Event) => this.updateOpening({ style: (e.target as HTMLSelectElement).value === "bars" ? "bars" : null })}>
+                <option value="standard" ?selected=${o.style !== "bars"}>${this.t("style_auto")}</option>
+                <option value="bars" ?selected=${o.style === "bars"}>Grade / Vazado</option>
+              </select></label
             >`
           : this.renderStyleSelect(o)}
         ${window

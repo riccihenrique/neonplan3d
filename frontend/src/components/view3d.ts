@@ -5176,28 +5176,53 @@ export class Fp3dView3d extends LitElement {
     const out: (DeviceMarker & { fromFurniture: boolean })[] = [];
     for (const floor of b.floors) {
       for (const o of floor.openings) {
-        const lock = this.openingLinks?.get(o.id)?.lock;
-        if (!lock) continue;
-        // on a double door the lock sits on the main leaf, not on the seam between the leaves (#645)
-        const spot = this.openingSpot(b, o.id, true);
-        if (!spot) continue;
-        const st = hass.states[lock];
-        out.push({
-          id: lock,
-          floorId: floor.id,
-          roomId: o.room_id,
-          x: spot.x,
-          z: spot.z,
-          y: Math.min(spot.y + 0.35, 1.5),
-          icon: iconSvg("lock"),
-          name: entityName(hass, lock),
-          text: st ? stateText(hass, st) : "",
-          active: !!st && (st.state === "unlocked" || st.state === "open" || st.state === "unlocking"),
-          unavailable: !st || isUnavailable(st),
-          glow: null,
-          full: true,
-          fromFurniture: false,
-        });
+        const links = this.openingLinks?.get(o.id);
+        const lock = links?.lock;
+        if (lock) {
+          // on a double door the lock sits on the main leaf, not on the seam between the leaves (#645)
+          const spot = this.openingSpot(b, o.id, true);
+          if (spot) {
+            const st = hass.states[lock];
+            out.push({
+              id: lock,
+              floorId: floor.id,
+              roomId: o.room_id,
+              x: spot.x,
+              z: spot.z,
+              y: Math.min(spot.y + 0.35, 1.5),
+              icon: iconSvg("lock"),
+              name: entityName(hass, lock),
+              text: st ? stateText(hass, st) : "",
+              active: !!st && (st.state === "unlocked" || st.state === "open" || st.state === "unlocking"),
+              unavailable: !st || isUnavailable(st),
+              glow: null,
+              full: true,
+              fromFurniture: false,
+            });
+          }
+        }
+        if (o.type === "garage" && links?.cover) {
+          const spot = this.openingSpot(b, o.id, false);
+          if (spot) {
+            const st = hass.states[links.cover];
+            out.push({
+              id: links.cover,
+              floorId: floor.id,
+              roomId: o.room_id,
+              x: spot.x,
+              z: spot.z,
+              y: Math.min(spot.y + 0.35, 1.5),
+              icon: iconSvg("cover"),
+              name: entityName(hass, links.cover),
+              text: st ? stateText(hass, st) : "",
+              active: !!st && (st.state === "open" || st.state === "opening"),
+              unavailable: !st || isUnavailable(st),
+              glow: null,
+              full: true,
+              fromFurniture: false,
+            });
+          }
+        }
       }
     }
     return out;

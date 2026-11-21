@@ -444,7 +444,25 @@ export function buildOpeningParts(infos: readonly OpeningInfo[], states: Readonl
       const closed = Math.min(1, Math.max(0, st.cover ?? 1));
       const panelC = new Color(0xd4e0ff);
       const plane = info.faceRoom - 0.03;
-      if (info.opening.garage_kind === "tilt") {
+      const barsStyle = info.opening.style === "bars";
+      if (barsStyle) {
+        const bottom = T * (1 - closed);
+        if (T - bottom > 0.05) {
+          const barC = new Color(OP.FRAME);
+          const barTop = new Color(OP.FRAME_TOP);
+          const barD = 0.02;
+          // top & bottom horizontal rails
+          splitBox(blinds, tf, 0.02, W - 0.02, plane - barD, plane + barD, bottom, Math.min(T, bottom + 0.05), barC, barTop, cut, bucket);
+          splitBox(blinds, tf, 0.02, W - 0.02, plane - barD, plane + barD, Math.max(bottom, T - 0.05), T, barC, barTop, cut, bucket);
+          // vertical metal bars every ~12 cm
+          const span = Math.max(0.2, W - 0.08);
+          const count = Math.max(2, Math.round(span / 0.12));
+          for (let k = 0; k <= count; k++) {
+            const bx = 0.04 + (span * k) / count;
+            splitBox(blinds, tf, bx - 0.012, bx + 0.012, plane - 0.012, plane + 0.012, bottom, T, barC, barTop, cut, bucket);
+          }
+        }
+      } else if (info.opening.garage_kind === "tilt") {
         // up-and-over: one stiff leaf swinging out and up
         const [t, b] = tiltLeaf(plane, T - 0.01, T - 0.02, 1 - closed);
         tiltPanel(blinds, tf, 0.02, W - 0.02, b, t, panelC, cut, bucket);
