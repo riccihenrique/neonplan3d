@@ -383,6 +383,7 @@ export class Fp3dView3d extends LitElement {
     _hhFolded: { state: true },
     _binInfo: { state: true },
     _plantInfo: { state: true },
+    _applianceInfo: { state: true },
     _gangMenu: { state: true },
     householdCard: { attribute: false },
     _sceneFired: { state: true },
@@ -623,6 +624,7 @@ export class Fp3dView3d extends LitElement {
   private declare _binInfo: { furnitureId: string; x: number; y: number } | null;
   /** Plant tapped: soil moisture, watering switch and details. */
   private declare _plantInfo: { furnitureId: string; x: number; y: number } | null;
+  private declare _applianceInfo: { furnitureId: string; x: number; y: number } | null;
   private plantInfoTimer: ReturnType<typeof setTimeout> | undefined;
   /** A wall switch or socket with several gangs: its small menu (one button per gang). */
   private declare _gangMenu: { furnitureId: string; x: number; y: number } | null;
@@ -3116,7 +3118,8 @@ export class Fp3dView3d extends LitElement {
         if (!link) continue;
         // a battery goes by its charge first: its power sensor is often placed on its own as well
         const id = (f.type === "home_battery" ? (extra ?? link.entity ?? link.power) : (link.entity ?? link.power ?? extra ?? extraSensor))!;
-        targets.set(f.id, id);
+        const isAppliance = f.type === "dishwasher" || f.type === "washer" || f.type === "dryer";
+        targets.set(f.id, isAppliance ? `appliance:${f.id}` : id);
         const st = link.entity ? hass.states[link.entity] : undefined;
         // the meter's sensor is the grid (+ = import), the battery's can point the other way as well
         const invert = f.type === "meter" ? b.energy.grid_invert && !f.export : f.type === "home_battery" ? b.energy.battery_invert && !f.charge : false;
@@ -4263,6 +4266,95 @@ export class Fp3dView3d extends LitElement {
       if (this.ro) this.showInfo(info.entity, x, y);
       else openMoreInfo(this, info.entity);
     }
+  }
+
+  /** Washer, dryer or dishwasher tapped: sleek appliance status card with rinse-aid/door alerts, timer & power toggle. */
+  private renderApplianceInfo() {
+    const i = this._applianceInfo;
+    const hass = this.hass;
+    const f = i && this.building?.floors.flatMap((x) => x.furniture).find((m) => m.id === i.furnitureId);
+    if (!i || !hass || !f) return nothing;
+    const link = this.furnitureLinks.get(f.id);
+    const mainId = link?.entity ?? link?.power ?? null;
+    if (!mainId) return nothing;
+    const st = hass.states[mainId];
+    const label = f.name || (st ? entityName(hass, mainId) : furnitureName(hass, f.type));
+
+    // Discover sibling entities on the same HA device (power switch, rinse aid, door, remaining time, program)
+    const devId = hass.entities?.[mainId]?.device_id;
+    const siblings = devId
+      ? Object.values(hass.entities ?? {})
+          .filter((e) => e.device_id === devId)
+          .map((e) => e.entity_id)
+      : [mainId];
+
+    const switchId = mainId.startsWith("switch.") ? mainId : siblings.find((id) => id.startsWith("switch.") && /power|ligar|estado|state/i.test(id)) ?? siblings.find((id) => id.startsWith("switch."));
+    const switchSt = switchId ? hass.states[switchId] : undefined;
+    const rinseId = siblings.find((id) => id.startsWith("binary_sensor.") && /rinse|secante/i.test(id));
+    const rinseMissing = !!rinseId && hass.states[rinseId]?.state === "on";
+    const doorId = siblings.find((id) => id.startsWith("binary_sensor.") && /door|porta/i.test(id));
+    const doorOpen = !!doorId && hass.states[doorId]?.state === "on";
+    const timeId = siblings.find((id) => id.startsWith("sensor.") && /remain|time_left|tempo|restante/i.test(id));
+    const timeVal = timeId ? hass.states[timeId]?.state : undefined;
+    const progId = siblings.find((id) => (id.startsWith("sensor.") || id.startsWith("select.")) && /program|course|ciclo|modo/i.test(id));
+    const progVal = progId ? hass.states[progId]?.state : undefined;
+
+    const rawState = String(st?.attributes?.operation_state ?? st?.attributes?.machine_state ?? st?.state ?? "unknown");
+    const isOff = /^(off|desligad|idle|standby|unavailable|unknown)$/i.test(rawState);
+    const isRunning = !isOff && /^(on|running|washing|drying|rinsing|spinning|heating|lavando|secando|program)/i.test(rawState);
+    const isDish = f.type === "dishwasher";
+    const close = () => (this._applianceInfo = null);
+
+    const iconSvg = isDish
+      ? html`<svg viewBox="0 0 32 32" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+          <rect x="4" y="3" width="24" height="26" rx="3" />
+          <line x1="4" y1="8.5" x2="28" y2="8.5" />
+          <circle cx="8" cy="5.8" r="1" fill="currentColor" />
+          <rect x="20" y="5" width="4.5" height="1.6" rx="0.8" fill="currentColor" />
+          <rect x="7" y="11" width="18" height="15" rx="1.5" opacity="0.55" />
+          <ellipse cx="11.5" cy="21.5" rx="1.5" ry="3.5" opacity="0.8" />
+          <ellipse cx="16" cy="21.5" rx="1.5" ry="3.5" opacity="0.8" />
+          <ellipse cx="20.5" cy="21.5" rx="1.5" ry="3.5" opacity="0.8" />
+        </svg>`
+      : html`<svg viewBox="0 0 32 32" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+          <rect x="4" y="3" width="24" height="26" rx="3" />
+          <line x1="4" y1="8.5" x2="28" y2="8.5" />
+          <circle cx="16" cy="5.8" r="1.3" fill="currentColor" />
+          <circle cx="16" cy="18.5" r="6.8" />
+          <circle cx="16" cy="18.5" r="4.2" opacity="0.55" />
+        </svg>`;
+
+    return html`<div class="fp3d-swipe fp3d-info" style="left:${i.x}px;top:${i.y}px;min-width:250px;max-width:310px" role="dialog" aria-label=${label} @click=${(e: Event) => e.stopPropagation()}>
+      <div class="fp3d-pop-head" style="gap:8px;align-items:center">
+        <span style="color:${isRunning ? "#38bdf8" : "var(--fp-muted)"};display:flex">${iconSvg}</span>
+        <div style="flex:1;min-width:0">
+          <strong style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${label}</strong>
+          <span style="font-size:11.5px;color:${isRunning ? "#38bdf8" : "var(--fp-muted)"}">● ${st ? stateText(hass, st) : rawState}</span>
+        </div>
+        ${switchSt
+          ? html`<button
+              class="fp3d-btn"
+              style="padding:5px 9px;color:${switchSt.state === "on" ? "#38bdf8" : "var(--fp-muted)"}"
+              title="Power"
+              @click=${() => hass.callService("switch", switchSt.state === "on" ? "turn_off" : "turn_on", { entity_id: switchId })}
+            >
+              ⏻
+            </button>`
+          : nothing}
+        <button class="fp3d-pop-x" aria-label="Close" @click=${close}>✕</button>
+      </div>
+      ${rinseMissing || doorOpen || (timeVal && !/^(unavailable|unknown|0|00:00)$/i.test(timeVal)) || (progVal && !/^(unavailable|unknown|none)$/i.test(progVal))
+        ? html`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">
+            ${rinseMissing ? html`<span style="font-size:11.5px;padding:2px 8px;border-radius:999px;background:rgba(251,191,36,0.16);color:#fbbf24;border:1px solid rgba(251,191,36,0.35)">🧴 Falta secante</span>` : nothing}
+            ${doorOpen ? html`<span style="font-size:11.5px;padding:2px 8px;border-radius:999px;background:rgba(251,191,36,0.16);color:#fbbf24;border:1px solid rgba(251,191,36,0.35)">🚪 Porta aberta</span>` : nothing}
+            ${timeVal && !/^(unavailable|unknown|0|00:00)$/i.test(timeVal) ? html`<span style="font-size:11.5px;padding:2px 8px;border-radius:999px;background:rgba(56,189,248,0.14);color:#38bdf8">⏱ ${timeVal}</span>` : nothing}
+            ${progVal && !/^(unavailable|unknown|none)$/i.test(progVal) ? html`<span style="font-size:11.5px;padding:2px 8px;border-radius:999px;background:rgba(148,163,184,0.14);color:var(--fp-ink)">${progVal}</span>` : nothing}
+          </div>`
+        : nothing}
+      <div class="fp3d-pop-acts" style="margin-top:10px">
+        <button class="fp3d-btn" @click=${() => { openMoreInfo(this, mainId); close(); }}>ⓘ Detalhes</button>
+      </div>
+    </div>`;
   }
 
   /** Plant tapped: shows soil moisture status, irrigation trigger, and details link. */
@@ -6373,6 +6465,10 @@ export class Fp3dView3d extends LitElement {
       this.onPlantTap(fid, x, y);
       return;
     }
+    if (entityId.startsWith("appliance:")) {
+      this._applianceInfo = { furnitureId: entityId.slice(10), x, y };
+      return;
+    }
     // Haushalt Pro: a bin shows its next pickups; a mailbox's or a plant's pin opens its sensor
     if (entityId.startsWith("hh:")) {
       const [id, furnitureId] = entityId.slice(3).split("#");
@@ -6678,7 +6774,7 @@ export class Fp3dView3d extends LitElement {
     >
       ${this.renderZoomBackground()}
       ${this._error ? html`<p class="fp3d-error">${this._error}</p>` : nothing} ${this.clean ? nothing : this.renderEnergy()} ${this.renderHologram()} ${this.clean ? nothing : this.renderLegend()}
-      ${this.renderClock()} ${this.renderAlerts()} ${this.clean || this._walk ? nothing : html`${this.renderHousehold()} ${this.renderThumbs()} ${this.renderScenes()} ${this.renderFind()} ${this.renderCentral()}`} ${this.clean ? nothing : this.renderWalk()} ${this.renderSwipe()} ${this.renderInfo()} ${this.renderBinInfo()} ${this.renderPlantInfo()} ${this.renderGangMenu()} ${this.renderThrough()} ${this.renderCamPop()} ${this.renderCameraWall()} ${this.renderSheet()} ${this.renderModulePopup()} ${this.renderSettings()} ${this.renderNote()}
+      ${this.renderClock()} ${this.renderAlerts()} ${this.clean || this._walk ? nothing : html`${this.renderHousehold()} ${this.renderThumbs()} ${this.renderScenes()} ${this.renderFind()} ${this.renderCentral()}`} ${this.clean ? nothing : this.renderWalk()} ${this.renderSwipe()} ${this.renderInfo()} ${this.renderBinInfo()} ${this.renderPlantInfo()} ${this.renderApplianceInfo()} ${this.renderGangMenu()} ${this.renderThrough()} ${this.renderCamPop()} ${this.renderCameraWall()} ${this.renderSheet()} ${this.renderModulePopup()} ${this.renderSettings()} ${this.renderNote()}
       ${this.clean ? nothing : this.renderProHint()} ${this.renderMenu()} ${this.renderEye()} ${this.building?.settings.surroundings?.on ? html`<a class="fp3d-osm-credit" href=${OSM_COPYRIGHT} target="_blank" rel="noopener">© OpenStreetMap</a>` : nothing}
       ${this.renderMic()} ${this.renderFlyIn()}
       ${this._spotHint ? html`<button class="fp3d-spot-hint" @click=${() => this.viewer?.pickSpot(null)}>📍 ${this._spotHint} <span aria-hidden="true">✕</span></button>` : nothing}
